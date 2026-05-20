@@ -5,8 +5,9 @@ import bcrypt from "bcrypt";
 import { AppError } from "../../lib/errors.js";
 import { skipTake } from "../../lib/pagination.js";
 import { syncScheduleNoticesForDoctorDate } from "../../lib/schedule-notices.js";
-import { toDateOnlyIso, utcDateTime } from "../../lib/time.js";
-import { formatAppointmentToken } from "../../lib/tokens.js";
+import { dateOnlyUtc, localDateTime, toDateOnlyIsoFromDbDate } from "../../lib/time.js";
+import { formatTokenDisplay } from "../../lib/tokens.js";
+import { ensureSessionForAvailability } from "../queue/session.service.js";
 import type {
   adminAppointmentListSchema,
   adminUserListQuerySchema,
@@ -138,28 +139,20 @@ export async function setAvailability(app: FastifyInstance, body: z.infer<typeof
   const doctor = await app.prisma.doctor.findUnique({ where: { id: body.doctorId } });
   if (!doctor) throw new AppError(404, "Doctor not found", "NOT_FOUND");
 
-  const date = utcDateTime(body.date, "00:00");
+  const date = dateOnlyUtc(body.date);
 
-  const existing = await app.prisma.availability.findFirst({
-    where: { doctorId: body.doctorId, date },
+  const row = await app.prisma.$transaction(async (tx) => {
+    const availability = await tx.availability.create({
+      data: {
+        doctorId: body.doctorId,
+        date,
+        startTime: body.startTime,
+        endTime: body.endTime,
+      },
+    });
+    await ensureSessionForAvailability(tx, availability);
+    return availability;
   });
-
-  const row = existing
-    ? await app.prisma.availability.update({
-        where: { id: existing.id },
-        data: {
-          startTime: body.startTime,
-          endTime: body.endTime,
-        },
-      })
-    : await app.prisma.availability.create({
-        data: {
-          doctorId: body.doctorId,
-          date,
-          startTime: body.startTime,
-          endTime: body.endTime,
-        },
-      });
 
   await syncScheduleNoticesForDoctorDate(app, body.doctorId, date);
   return row;
@@ -171,8 +164,8 @@ export async function patchAvailability(app: FastifyInstance, id: string, body: 
 
   const startTime = body.startTime ?? row.startTime;
   const endTime = body.endTime ?? row.endTime;
-  const dateStr = toDateOnlyIso(row.date);
-  if (utcDateTime(dateStr, endTime).getTime() <= utcDateTime(dateStr, startTime).getTime()) {
+  const dateStr = toDateOnlyIsoFromDbDate(row.date);
+  if (localDateTime(dateStr, endTime).getTime() <= localDateTime(dateStr, startTime).getTime()) {
     throw new AppError(400, "End time must be after start time", "INVALID_RANGE");
   }
 
@@ -206,7 +199,7 @@ export async function listAppointmentsAdmin(
   const { skip, take } = skipTake(q);
   const where = {
     ...(q.doctorId ? { doctorId: q.doctorId } : {}),
-    ...(q.date ? { date: utcDateTime(q.date, "00:00") } : {}),
+    ...(q.date ? { date: dateOnlyUtc(q.date) } : {}),
     ...(q.status ? { status: q.status } : {}),
   };
 
@@ -218,7 +211,13 @@ export async function listAppointmentsAdmin(
       skip,
       take,
       include: {
-        doctor: { select: { id: true, name: true } },
+        doctor: {
+          select: {
+            id: true,
+            name: true,
+            department: { select: { id: true, name: true } },
+          },
+        },
         user: { select: { id: true, name: true, email: true } },
       },
     }),
@@ -232,10 +231,12 @@ export async function listAppointmentsAdmin(
       id: a.id,
       doctorId: a.doctorId,
       doctorName: a.doctor.name,
+      departmentId: a.doctor.department.id,
+      departmentName: a.doctor.department.name,
       patient: { id: a.user.id, name: a.user.name, email: a.user.email },
       scheduledAt: a.scheduledAt.toISOString(),
       status: a.status,
-      token: formatAppointmentToken(a.doctorId, a.tokenNumber),
+      token: formatTokenDisplay(a.tokenNumber),
     })),
   };
 }

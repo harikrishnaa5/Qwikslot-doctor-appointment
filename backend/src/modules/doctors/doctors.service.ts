@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { AppError } from "../../lib/errors.js";
 import { BOOKING_SLOT_STEP_MINUTES } from "../../lib/slots-config.js";
-import { toDateOnlyIso, utcDateTime } from "../../lib/time.js";
+import { dateOnlyUtc, localDateTime, toDateOnlyIso } from "../../lib/time.js";
+import * as queueService from "../queue/queue.service.js";
+import * as sessionService from "../queue/session.service.js";
 
 export async function listDepartments(app: FastifyInstance) {
   return app.prisma.department.findMany({
@@ -50,7 +52,7 @@ export async function getAvailableSlots(app: FastifyInstance, doctorId: string, 
   const doctor = await app.prisma.doctor.findFirst({ where: { id: doctorId, active: true } });
   if (!doctor) throw new AppError(404, "Doctor not found", "NOT_FOUND");
 
-  const day = utcDateTime(dateStr, "00:00");
+  const day = dateOnlyUtc(dateStr);
   const availabilities = await app.prisma.availability.findMany({
     where: { doctorId, date: day },
   });
@@ -69,8 +71,8 @@ export async function getAvailableSlots(app: FastifyInstance, doctorId: string, 
   const slots: { start: string; end: string }[] = [];
   const stepMs = BOOKING_SLOT_STEP_MINUTES * 60_000;
   for (const a of availabilities) {
-    let cur = utcDateTime(dateStr, a.startTime);
-    const end = utcDateTime(dateStr, a.endTime);
+    let cur = localDateTime(dateStr, a.startTime);
+    const end = localDateTime(dateStr, a.endTime);
     while (cur.getTime() + stepMs <= end.getTime()) {
       const next = new Date(cur.getTime() + stepMs);
       const iso = cur.toISOString();
@@ -89,44 +91,20 @@ export async function getAvailableSlots(app: FastifyInstance, doctorId: string, 
   return { date: dateStr, slots: futureOnly };
 }
 
-export async function getQueueSnapshot(app: FastifyInstance, doctorId: string, dateStr?: string) {
-  const doctor = await app.prisma.doctor.findFirst({ where: { id: doctorId } });
-  if (!doctor) throw new AppError(404, "Doctor not found", "NOT_FOUND");
-
+/** Queue snapshot for a doctor on a date (resolves session automatically). */
+export async function getQueueSnapshot(
+  app: FastifyInstance,
+  doctorId: string,
+  dateStr?: string,
+  sessionId?: string,
+  patientAppointmentId?: string
+) {
   const dayStr = dateStr ?? toDateOnlyIso(new Date());
-  const day = utcDateTime(dayStr, "00:00");
-
-  const list = await app.prisma.appointment.findMany({
-    where: { doctorId, date: day, status: { notIn: ["CANCELLED"] } },
-    orderBy: [{ tokenNumber: "asc" }],
-    select: {
-      id: true,
-      tokenNumber: true,
-      status: true,
-      scheduledAt: true,
-      user: { select: { id: true, name: true } },
-    },
-  });
-
-  const inProgress = list.find((x) => x.status === "IN_PROGRESS");
-  const waiting = list.filter((x) => x.status === "WAITING");
-
-  return {
+  const session = await sessionService.resolveSessionForQueueView(
+    app,
     doctorId,
-    date: dayStr,
-    current: inProgress
-      ? { token: `${doctorId}--${inProgress.tokenNumber}`, appointmentId: inProgress.id }
-      : null,
-    nextWaiting: waiting[0]
-      ? { token: `${doctorId}--${waiting[0].tokenNumber}`, appointmentId: waiting[0].id }
-      : null,
-    appointments: list.map((a) => ({
-      id: a.id,
-      token: `${doctorId}--${a.tokenNumber}`,
-      tokenNumber: a.tokenNumber,
-      status: a.status,
-      scheduledAt: a.scheduledAt.toISOString(),
-      patientName: a.user.name,
-    })),
-  };
+    dayStr,
+    sessionId
+  );
+  return queueService.buildQueueSnapshot(app, session.id, { patientAppointmentId });
 }

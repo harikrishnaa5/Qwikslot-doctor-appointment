@@ -4,6 +4,7 @@ import { AuthLayout } from "../components/AuthLayout";
 import { Card, Button } from "../components/ui";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { registerRequested } from "../store/authActions";
+import { adminLoginRedirect } from "../lib/adminNav";
 
 export function RegisterPage() {
   const dispatch = useAppDispatch();
@@ -15,7 +16,7 @@ export function RegisterPage() {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    if (user) nav("/", { replace: true });
+    if (user) nav(adminLoginRedirect(user.role), { replace: true });
   }, [user, nav]);
 
   return (

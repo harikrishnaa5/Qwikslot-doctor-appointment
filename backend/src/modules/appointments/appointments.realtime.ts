@@ -1,12 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { broadcastDoctor } from "../../realtime/queue-hub.js";
-import * as doctorsService from "../doctors/doctors.service.js";
+import { emitSessionQueue as broadcastSessionQueue } from "../queue/queue.realtime.js";
 
-export async function emitDoctorQueue(app: FastifyInstance, doctorId: string, dateStr: string) {
-  const snapshot = await doctorsService.getQueueSnapshot(app, doctorId, dateStr);
-  broadcastDoctor(doctorId, { event: "token_updated", payload: snapshot });
-  broadcastDoctor(doctorId, {
-    event: "current_token_changed",
-    payload: { current: snapshot.current, date: snapshot.date, doctorId },
-  });
+export async function emitSessionQueue(
+  app: FastifyInstance,
+  sessionId: string,
+  patientAppointmentId?: string
+) {
+  return broadcastSessionQueue(app, sessionId, patientAppointmentId);
 }

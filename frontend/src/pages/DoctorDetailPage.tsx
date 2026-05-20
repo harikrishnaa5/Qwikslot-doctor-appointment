@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+// import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { fetchDoctor, fetchSlots } from "../api/public";
 import { localTodayStr, formatSlotLabel } from "../lib/dates";
-import { Card, Button, Skeleton } from "../components/ui";
+import { Card, Skeleton } from "../components/ui";
 import { DoctorAvatar } from "../components/DoctorAvatar";
-import { useAppSelector } from "../store/hooks";
+// import { useAppSelector } from "../store/hooks";
 import { CalendarDatePicker } from "../components/date-time";
 import { getSelectedDoctorId } from "../lib/selectedDoctor";
 
@@ -15,8 +15,8 @@ export function DoctorDetailPage() {
   const today = localTodayStr();
   const [date, setDate] = useState<string | null>(today);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
-  const nav = useNavigate();
-  const user = useAppSelector((s) => s.auth.user);
+  // const nav = useNavigate();
+  // const user = useAppSelector((s) => s.auth.user);
 
   const docQ = useQuery({
     queryKey: ["doctor", doctorId],
@@ -43,7 +43,7 @@ export function DoctorDetailPage() {
     }
   }, [visibleSlots, selectedStart]);
 
-  const doctorName = docQ.data?.name;
+  // const doctorName = docQ.data?.name;
 
   if (!doctorId) {
     return (
@@ -120,7 +120,8 @@ export function DoctorDetailPage() {
         })}
       </ul>
 
-      <div className="fixed bottom-[4.5rem] left-0 right-0 z-30 px-4 pb-[env(safe-area-inset-bottom)] md:static md:px-0 md:pb-0">
+      {/* Booking flow disabled — see App.tsx booking routes
+      <motion.div className="fixed bottom-[4.5rem] left-0 right-0 z-30 px-4 pb-[env(safe-area-inset-bottom)] md:static md:px-0 md:pb-0">
         <Button
           className="w-full shadow-lg md:max-w-xs"
           disabled={!selectedStart || !doctorId}
@@ -137,7 +138,8 @@ export function DoctorDetailPage() {
         >
           {user ? "Continue to payment" : "Sign in to book"}
         </Button>
-      </div>
+      </motion.div>
+      */}
     </div>
   );
 }

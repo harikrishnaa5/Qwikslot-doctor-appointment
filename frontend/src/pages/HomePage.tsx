@@ -134,7 +134,7 @@ export function HomePage() {
           Popular specialties
         </h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Choose an area of care below to browse doctors and available times near you.
+          Choose a specialty below to browse doctors and available times near you.
         </p>
         <ul className="mt-6 flex flex-col gap-3 sm:grid sm:grid-cols-2">
           {deptQ.isLoading &&

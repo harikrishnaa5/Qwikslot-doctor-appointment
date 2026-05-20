@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { bookAppointment, createMockIntent } from "../api/user";
 import { formatSlotLabel } from "../lib/dates";
 import { Card, Button, PageHeader } from "../components/ui";

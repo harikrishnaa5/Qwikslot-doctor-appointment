@@ -10,4 +10,6 @@ export const slotsQuerySchema = z.object({
 
 export const queueQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  sessionId: z.string().optional(),
+  appointmentId: z.string().optional(),
 });

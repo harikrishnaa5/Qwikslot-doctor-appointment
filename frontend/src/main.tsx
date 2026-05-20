@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { Provider } from "react-redux";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
 import { store } from "./store";
+import { AppToaster } from "./components/AppToaster";
 import { ThemeSync } from "./components/ThemeSync";
 import { App } from "./App";
 import "react-day-picker/style.css";
@@ -22,7 +22,7 @@ createRoot(document.getElementById("root")!).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <ThemeSync />
-          <Toaster richColors position="top-center" />
+          <AppToaster />
           <App />
         </BrowserRouter>
       </QueryClientProvider>

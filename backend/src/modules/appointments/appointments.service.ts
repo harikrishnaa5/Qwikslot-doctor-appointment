@@ -2,10 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { AppointmentStatus } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { skipTake } from "../../lib/pagination.js";
-import { toDateOnlyIso, utcDateTime } from "../../lib/time.js";
-import { formatAppointmentToken } from "../../lib/tokens.js";
+import { dateOnlyUtc, toDateOnlyIso } from "../../lib/time.js";
+import { formatTokenDisplay } from "../../lib/tokens.js";
 import * as mockPayment from "../payments/mock-payment.service.js";
 import * as doctorsService from "../doctors/doctors.service.js";
+import * as sessionService from "../queue/session.service.js";
+import * as tokenService from "../queue/token.service.js";
 import * as realtime from "./appointments.realtime.js";
 import type { bookAppointmentSchema, appointmentListQuerySchema } from "./appointments.schemas.js";
 import type { z } from "zod";
@@ -31,19 +33,22 @@ export async function bookAppointment(
   const slotOk = slots.some((s) => s.start === scheduledIso);
   if (!slotOk) throw new AppError(400, "Slot is no longer available", "SLOT_TAKEN");
 
-  const date = utcDateTime(dateStr, "00:00");
+  const date = dateOnlyUtc(dateStr);
+  const session = await sessionService.resolveSessionForBooking(
+    app,
+    body.doctorId,
+    scheduledAt,
+    dateStr
+  );
 
   try {
     const appointment = await app.prisma.$transaction(async (tx) => {
-      const agg = await tx.appointment.aggregate({
-        where: { doctorId: body.doctorId, date },
-        _max: { tokenNumber: true },
-      });
-      const tokenNumber = (agg._max.tokenNumber ?? 0) + 1;
+      const tokenNumber = await tokenService.issueNextToken(tx, session.id);
 
       return tx.appointment.create({
         data: {
           doctorId: body.doctorId,
+          sessionId: session.id,
           userId,
           scheduledAt,
           date,
@@ -54,20 +59,23 @@ export async function bookAppointment(
         },
         include: {
           doctor: { select: { id: true, name: true } },
+          session: { select: { id: true, label: true } },
         },
       });
     });
 
-    await realtime.emitDoctorQueue(app, body.doctorId, dateStr);
+    await realtime.emitSessionQueue(app, appointment.sessionId);
 
     return {
       appointment: {
         id: appointment.id,
         doctorId: appointment.doctorId,
         doctorName: appointment.doctor.name,
+        sessionId: appointment.sessionId,
+        sessionLabel: appointment.session.label,
         scheduledAt: appointment.scheduledAt.toISOString(),
         status: appointment.status,
-        token: formatAppointmentToken(appointment.doctorId, appointment.tokenNumber),
+        token: formatTokenDisplay(appointment.tokenNumber),
         tokenNumber: appointment.tokenNumber,
       },
     };
@@ -92,7 +100,7 @@ export async function listMyAppointments(
     ...(q.doctorId ? { doctorId: q.doctorId } : {}),
     ...(q.date
       ? {
-          date: utcDateTime(q.date, "00:00"),
+          date: dateOnlyUtc(q.date),
         }
       : {}),
   };
@@ -107,11 +115,13 @@ export async function listMyAppointments(
       select: {
         id: true,
         doctorId: true,
+        sessionId: true,
         scheduledAt: true,
         status: true,
         tokenNumber: true,
         scheduleNotice: true,
         doctor: { select: { name: true } },
+        session: { select: { id: true, label: true } },
       },
     }),
   ]);
@@ -124,9 +134,11 @@ export async function listMyAppointments(
       id: a.id,
       doctorId: a.doctorId,
       doctorName: a.doctor.name,
+      sessionId: a.sessionId ?? undefined,
+      sessionLabel: a.session?.label,
       scheduledAt: a.scheduledAt.toISOString(),
       status: a.status,
-      token: formatAppointmentToken(a.doctorId, a.tokenNumber),
+      token: formatTokenDisplay(a.tokenNumber),
       scheduleNotice: a.scheduleNotice,
     })),
   };
@@ -137,6 +149,7 @@ export async function getMyAppointment(app: FastifyInstance, userId: string, id:
     where: { id, userId },
     include: {
       doctor: { select: { id: true, name: true, department: { select: { name: true } } } },
+      session: { select: { id: true, label: true, startTime: true, endTime: true } },
     },
   });
   if (!row) throw new AppError(404, "Appointment not found", "NOT_FOUND");
@@ -146,9 +159,16 @@ export async function getMyAppointment(app: FastifyInstance, userId: string, id:
     doctorId: row.doctorId,
     doctorName: row.doctor.name,
     departmentName: row.doctor.department.name,
+    sessionId: row.sessionId,
+    session: {
+      id: row.session.id,
+      label: row.session.label,
+      startTime: row.session.startTime,
+      endTime: row.session.endTime,
+    },
     scheduledAt: row.scheduledAt.toISOString(),
     status: row.status,
-    token: formatAppointmentToken(row.doctorId, row.tokenNumber),
+    token: formatTokenDisplay(row.tokenNumber),
     tokenNumber: row.tokenNumber,
     notes: row.notes,
     scheduleNotice: row.scheduleNotice,
@@ -175,7 +195,7 @@ export async function updateAppointmentStatus(
 ) {
   const existing = await app.prisma.appointment.findUnique({
     where: { id: appointmentId },
-    select: { id: true, doctorId: true, date: true, status: true },
+    select: { id: true, doctorId: true, sessionId: true, date: true, status: true },
   });
   if (!existing) throw new AppError(404, "Appointment not found", "NOT_FOUND");
 
@@ -185,53 +205,23 @@ export async function updateAppointmentStatus(
     include: { doctor: { select: { id: true, name: true } } },
   });
 
-  const dateStr = toDateOnlyIso(existing.date);
-  await realtime.emitDoctorQueue(app, existing.doctorId, dateStr);
+  await realtime.emitSessionQueue(app, existing.sessionId);
 
   return {
     id: updated.id,
     doctorId: updated.doctorId,
+    sessionId: updated.sessionId,
     status: updated.status,
-    token: formatAppointmentToken(updated.doctorId, updated.tokenNumber),
+    token: formatTokenDisplay(updated.tokenNumber),
     scheduledAt: updated.scheduledAt.toISOString(),
   };
 }
 
+/** @deprecated Prefer queueService.nextPatient(sessionId) */
 export async function advanceQueue(app: FastifyInstance, doctorId: string, dateStr: string) {
-  const day = utcDateTime(dateStr, "00:00");
-
-  const result = await app.prisma.$transaction(async (tx) => {
-    const inProgress = await tx.appointment.findFirst({
-      where: { doctorId, date: day, status: AppointmentStatus.IN_PROGRESS },
-      orderBy: { tokenNumber: "asc" },
-    });
-    if (inProgress) {
-      await tx.appointment.update({
-        where: { id: inProgress.id },
-        data: { status: AppointmentStatus.COMPLETED },
-      });
-    }
-
-    const next = await tx.appointment.findFirst({
-      where: { doctorId, date: day, status: AppointmentStatus.WAITING },
-      orderBy: { tokenNumber: "asc" },
-    });
-
-    if (!next) {
-      return { advanced: false as const, message: "No waiting tokens" };
-    }
-
-    await tx.appointment.update({
-      where: { id: next.id },
-      data: { status: AppointmentStatus.IN_PROGRESS },
-    });
-
-    return { advanced: true as const, appointmentId: next.id, tokenNumber: next.tokenNumber };
-  });
-
-  await realtime.emitDoctorQueue(app, doctorId, dateStr);
-  return {
-    ...result,
-    token: result.advanced ? formatAppointmentToken(doctorId, result.tokenNumber) : undefined,
-  };
+  const { nextPatientByDoctorDate } = await import("../queue/queue.service.js");
+  const result = await nextPatientByDoctorDate(app, doctorId, dateStr);
+  const session = await sessionService.resolveSessionForQueueView(app, doctorId, dateStr);
+  await realtime.emitSessionQueue(app, session.id);
+  return result;
 }

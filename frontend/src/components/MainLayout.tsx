@@ -6,8 +6,6 @@ import { toggleTheme } from "../store/slices/themeSlice";
 import { clearCredentials } from "../store/slices/authSlice";
 import { clearSelectedDoctorId } from "../lib/selectedDoctor";
 
-const ADMIN_TAB_STORAGE_KEY = "admin_dashboard_tab";
-
 export function MainLayout() {
   const dispatch = useAppDispatch();
   const location = useLocation();
@@ -18,12 +16,6 @@ export function MainLayout() {
   useEffect(() => {
     if (location.pathname !== "/doctors") {
       clearSelectedDoctorId();
-    }
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!location.pathname.startsWith("/admin")) {
-      window.localStorage.removeItem(ADMIN_TAB_STORAGE_KEY);
     }
   }, [location.pathname]);
 

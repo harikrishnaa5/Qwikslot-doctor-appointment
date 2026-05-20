@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRoles } from "../../middleware/require-roles.js";
 import * as controller from "./admin.controller.js";
+import { queueAdminRoutes } from "../queue/queue.routes.js";
 
 const adminRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", authenticate);
@@ -31,6 +32,8 @@ const adminRoutes: FastifyPluginAsync = async (app) => {
     r.get("/appointments", controller.listAppointments);
     r.patch("/appointments/:id/status", controller.patchAppointmentStatus);
     r.post("/doctors/:doctorId/queue/next", controller.advanceQueue);
+
+    await r.register(queueAdminRoutes);
   });
 
   await app.register(

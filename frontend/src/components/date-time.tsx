@@ -3,7 +3,7 @@ import clsx from "clsx";
 import { CalendarDays, X } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 import dayjs, { type Dayjs } from "dayjs";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { MobileTimePicker } from "@mui/x-date-pickers/MobileTimePicker";

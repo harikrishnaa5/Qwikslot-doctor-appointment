@@ -1,6 +1,6 @@
 import { call, put, takeLatest } from "redux-saga/effects";
-import { toast } from "sonner";
 import * as authApi from "../api/auth";
+import { toast, SIGN_IN_SUCCESS_MESSAGE } from "../lib/toast";
 import { loginRequested, registerRequested } from "./authActions";
 import { setAuthError, setAuthLoading, setCredentials } from "./slices/authSlice";
 
@@ -12,7 +12,7 @@ function* loginSaga(action: ReturnType<typeof loginRequested>): Generator {
       ReturnType<typeof authApi.loginRequest>
     >;
     yield put(setCredentials({ token: res.token, user: res.user }));
-    toast.success("Signed in");
+    toast.success(SIGN_IN_SUCCESS_MESSAGE);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Login failed";
     yield put(setAuthError(msg));

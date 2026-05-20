@@ -47,8 +47,14 @@ export async function getQueue(request: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = request.params as { id: string };
     const q = queueQuerySchema.parse(request.query);
-    const result = await service.getQueueSnapshot(request.server, id, q.date);
-    return reply.send(result);
+    const result = await service.getQueueSnapshot(
+      request.server,
+      id,
+      q.date,
+      q.sessionId,
+      q.appointmentId
+    );
+    return reply.send({ queue: result });
   } catch (err) {
     return sendError(reply, err);
   }

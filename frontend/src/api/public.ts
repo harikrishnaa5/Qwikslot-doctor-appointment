@@ -1,5 +1,6 @@
 import { apiFetch } from "./client";
 import type { Department, Doctor, Slot } from "./types";
+import { fetchDoctorQueue, type QueueSnapshot } from "./queue";
 
 export async function fetchDepartments() {
   const r = await apiFetch<{ departments: Department[] }>("/api/v1/departments", { token: null });
@@ -25,20 +26,9 @@ export async function fetchSlots(doctorId: string, date: string) {
   return r.slots;
 }
 
-export async function fetchQueue(doctorId: string, date?: string) {
-  const q = date ? `?date=${encodeURIComponent(date)}` : "";
-  return apiFetch<{
-    doctorId: string;
-    date: string;
-    current: { token: string; appointmentId: string } | null;
-    nextWaiting: { token: string; appointmentId: string } | null;
-    appointments: {
-      id: string;
-      token: string;
-      tokenNumber: number;
-      status: string;
-      scheduledAt: string;
-      patientName: string;
-    }[];
-  }>(`/api/v1/doctors/${doctorId}/queue${q}`, { token: null });
+/** @deprecated Prefer fetchDoctorQueue from ./queue */
+export async function fetchQueue(doctorId: string, date?: string): Promise<QueueSnapshot> {
+  return fetchDoctorQueue(doctorId, { date });
 }
+
+export type { QueueSnapshot };

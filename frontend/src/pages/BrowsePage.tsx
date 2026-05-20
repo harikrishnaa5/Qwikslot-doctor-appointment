@@ -10,7 +10,7 @@ export function BrowsePage() {
 
   return (
     <div>
-      <PageHeader title="Find care" />
+      <PageHeader title="Find specialty" />
       <p className="mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
         Pick a specialty to browse doctors and see which appointment times are open.
       </p>

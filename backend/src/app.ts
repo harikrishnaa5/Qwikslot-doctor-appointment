@@ -13,6 +13,7 @@ import doctorsRoutes from "./modules/doctors/doctors.routes.js";
 import appointmentsRoutes from "./modules/appointments/appointments.routes.js";
 import paymentsRoutes from "./modules/payments/payments.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
+import { queuePublicRoutes } from "./modules/queue/queue.routes.js";
 
 export async function buildApp() {
   const nodeEnv = process.env.NODE_ENV ?? "development";
@@ -75,6 +76,7 @@ export async function buildApp() {
   await app.register(authRoutes, { prefix: "/api/v1/auth" });
   await app.register(departmentsRoutes, { prefix: "/api/v1/departments" });
   await app.register(doctorsRoutes, { prefix: "/api/v1/doctors" });
+  await app.register(queuePublicRoutes, { prefix: "/api/v1/queue" });
   await app.register(appointmentsRoutes, { prefix: "/api/v1/appointments" });
   await app.register(paymentsRoutes, { prefix: "/api/v1/payments" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });

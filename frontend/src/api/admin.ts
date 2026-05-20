@@ -158,6 +158,8 @@ export async function adminListAppointments(params: URLSearchParams) {
       id: string;
       doctorId: string;
       doctorName: string;
+      departmentId: string;
+      departmentName: string;
       patient: { name: string; email: string };
       scheduledAt: string;
       status: string;

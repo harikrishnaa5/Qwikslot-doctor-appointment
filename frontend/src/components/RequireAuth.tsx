@@ -7,7 +7,8 @@ export function RequireAuth() {
   const loc = useLocation();
 
   if (!user || !token) {
-    return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+    const loginPath = loc.pathname.startsWith("/admin") ? "/admin/login" : "/login";
+    return <Navigate to={loginPath} replace state={{ from: loc.pathname }} />;
   }
 
   return <Outlet />;

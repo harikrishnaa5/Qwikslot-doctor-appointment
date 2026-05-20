@@ -26,8 +26,11 @@ export type AppointmentRow = {
   id: string;
   doctorId: string;
   doctorName: string;
+  sessionId?: string;
+  sessionLabel?: string;
   scheduledAt: string;
   status: string;
   token: string;
   scheduleNotice?: string | null;
+  session?: { id: string; label: string; startTime: string; endTime: string };
 };

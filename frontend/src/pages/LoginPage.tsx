@@ -4,8 +4,15 @@ import { AuthLayout } from "../components/AuthLayout";
 import { Card, Button } from "../components/ui";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { loginRequested } from "../store/authActions";
+import { adminLoginRedirect } from "../lib/adminNav";
 
-export function LoginPage() {
+type LoginPageProps = {
+  /** Staff portal sign-in (same auth + success toast as patient login). */
+  variant?: "patient" | "admin";
+};
+
+export function LoginPage({ variant = "patient" }: LoginPageProps) {
+  const isAdminPortal = variant === "admin";
   const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
   const loading = useAppSelector((s) => s.auth.loading);
@@ -15,13 +22,17 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    if (user) nav(loc.state?.from ?? "/", { replace: true });
+    if (user) nav(adminLoginRedirect(user.role, loc.state?.from), { replace: true });
   }, [user, nav, loc.state?.from]);
 
   return (
     <AuthLayout
       title="Sign in"
-      subtitle="See your upcoming visits, your spot in line, and past appointments — all in one place."
+      subtitle={
+        isAdminPortal
+          ? "Sign in to manage departments, doctors, availability, and the live queue."
+          : "See your upcoming visits, your spot in line, and past appointments — all in one place."
+      }
     >
       <Card className="shadow-md dark:shadow-none">
         <form
@@ -60,12 +71,21 @@ export function LoginPage() {
             {loading ? "Signing in…" : "Sign in"}
           </Button>
         </form>
-        <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
-          No account?{" "}
-          <Link className="font-semibold text-teal-700 hover:underline dark:text-teal-400" to="/register">
-            Create one
-          </Link>
-        </p>
+        {isAdminPortal ? (
+          <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            Patient?{" "}
+            <Link className="font-semibold text-teal-700 hover:underline dark:text-teal-400" to="/login">
+              Sign in here
+            </Link>
+          </p>
+        ) : (
+          <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            No account?{" "}
+            <Link className="font-semibold text-teal-700 hover:underline dark:text-teal-400" to="/register">
+              Create one
+            </Link>
+          </p>
+        )}
       </Card>
     </AuthLayout>
   );

@@ -13,9 +13,18 @@ enum Role {
   SUPER_ADMIN
 }
 
+enum SessionStatus {
+  SCHEDULED
+  OPEN
+  PAUSED
+  CLOSED
+}
+
 enum AppointmentStatus {
   WAITING
+  CHECKED_IN
   IN_PROGRESS
+  SKIPPED
   COMPLETED
   CANCELLED
 }
@@ -60,9 +69,10 @@ model Doctor {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  department     Department     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  department     Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   availabilities Availability[]
+  sessions       DoctorSession[]
   appointments   Appointment[]
 
   @@index([departmentId])
@@ -78,31 +88,64 @@ model Availability {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  doctor  Doctor         @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  session DoctorSession?
 
   @@index([doctorId, date])
 }
 
+/// Independent queue per doctor per day/session (e.g. morning vs evening).
+model DoctorSession {
+  id                   String        @id @default(cuid())
+  doctorId             String
+  availabilityId       String?       @unique
+  date                 DateTime      @db.Date
+  label                String
+  startTime            String
+  endTime              String
+  status               SessionStatus @default(SCHEDULED)
+  /// Latest issued token number for this session.
+  tokenCounter         Int           @default(0)
+  /// Token number currently being served (0 = none yet).
+  currentToken         Int           @default(0)
+  avgMinutesPerPatient Int           @default(8)
+  openedAt             DateTime?
+  closedAt             DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  doctor       Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  availability Availability? @relation(fields: [availabilityId], references: [id], onDelete: SetNull)
+  appointments Appointment[]
+
+  @@unique([doctorId, date, startTime, endTime])
+  @@index([doctorId, date, status])
+  @@index([doctorId, date])
+}
+
 model Appointment {
-  id            String              @id @default(cuid())
-  doctorId      String
-  userId        String
-  scheduledAt   DateTime
-  date          DateTime            @db.Date
-  tokenNumber   Int
-  status        AppointmentStatus   @default(WAITING)
-  paymentRef    String?
-  notes         String?
-  /// Set when the doctor's availability no longer includes this slot (patient should be informed).
+  id             String            @id @default(cuid())
+  doctorId       String
+  sessionId      String?
+  userId         String
+  scheduledAt    DateTime
+  date           DateTime          @db.Date
+  tokenNumber    Int
+  status         AppointmentStatus @default(WAITING)
+  paymentRef     String?
+  notes          String?
   scheduleNotice String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  checkedInAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
-  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doctor  Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  session DoctorSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([doctorId, date, tokenNumber])
+  @@unique([sessionId, tokenNumber])
   @@unique([doctorId, scheduledAt])
+  @@index([sessionId, status, tokenNumber])
   @@index([doctorId, date, status])
   @@index([userId, scheduledAt])
 }

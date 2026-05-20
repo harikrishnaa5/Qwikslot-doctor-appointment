@@ -1,14 +1,14 @@
 import { AppointmentStatus, Prisma } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { theoreticalSlotStartIsoSet } from "./availability-slots.js";
-import { toDateOnlyIso } from "./time.js";
+import { toDateOnlyIsoFromDbDate } from "./time.js";
 
 export const SCHEDULE_DISRUPTION_NOTICE =
   "This visit time is no longer on the doctor's published schedule. Please contact the clinic or choose another time.";
 
 /** Clears or sets scheduleNotice on active visits for this doctor/day based on current availability. */
 export async function syncScheduleNoticesForDoctorDate(app: FastifyInstance, doctorId: string, day: Date) {
-  const dateStr = toDateOnlyIso(day);
+  const dateStr = toDateOnlyIsoFromDbDate(day);
   if (!Number.isFinite(day.getTime())) {
     app.log.error({ day }, "syncScheduleNoticesForDoctorDate: invalid day");
     return;

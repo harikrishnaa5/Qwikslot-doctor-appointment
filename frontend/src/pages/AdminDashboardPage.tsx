@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { MoreVertical, Plus } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "../lib/toast";
 import {
-  adminAdvanceQueue,
   adminCreateDepartment,
   adminCreateDoctor,
   adminDeleteDepartment,
@@ -35,40 +35,27 @@ import {
   localTodayStr,
   parseLocalDateTime,
 } from "../lib/dates";
-import { Button, Card, ConfirmModal, PageHeader, Skeleton } from "../components/ui";
+import { Button, Card, ConfirmModal, PageHeader, Skeleton, TablePagination } from "../components/ui";
 import { DoctorAvatar } from "../components/DoctorAvatar";
 import { useAppSelector } from "../store/hooks";
 import { CalendarDatePicker, ClockTimePicker } from "../components/date-time";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { adminListSessions, adminSessionNext, fetchDoctorQueue } from "../api/queue";
+import { formatAppointmentStatus } from "../lib/appointmentStatus";
+import {
+  ADMIN_NAV_META,
+  adminPath,
+  getAllowedAdminTabs,
+  tabFromSection,
+  type AdminTab,
+} from "../lib/adminNav";
 
 const MAX_PHOTO_FILE_BYTES = 5 * 1024 * 1024;
-const ADMIN_TAB_STORAGE_KEY = "admin_dashboard_tab";
 
-type Tab = "dept" | "docs" | "avail" | "appt" | "queue" | "patients" | "staff";
+type Tab = AdminTab;
 type StaffModalState = { mode: "create" } | { mode: "edit"; user: { id: string; name: string; email: string; role: string } };
 type DeptModalState = { mode: "create" } | { mode: "edit" };
 type DocModalState = { mode: "create" } | { mode: "edit"; doctor: AdminDoctor };
-
-function formatAdminToken(raw: string): string {
-  const [doctorPart, tokenPart] = raw.split("--");
-  const tokenNum = Number(tokenPart);
-  if (Number.isFinite(tokenNum) && tokenNum > 0) {
-    return `T-${String(tokenNum).padStart(3, "0")}`;
-  }
-  if (!doctorPart) return raw;
-  return raw;
-}
-
-function isTab(value: string | null): value is Tab {
-  return value === "dept" || value === "docs" || value === "avail" || value === "appt" || value === "queue" || value === "patients" || value === "staff";
-}
-
-function getAllowedTabs(role: string | null | undefined): Tab[] {
-  const tabs: Tab[] = ["dept", "docs", "avail", "appt", "queue"];
-  if (role === "ADMIN" || role === "SUPER_ADMIN") tabs.push("patients");
-  if (role === "SUPER_ADMIN") tabs.push("staff");
-  return tabs;
-}
 
 async function uploadPhotoFile(file: File): Promise<string> {
   if (file.size > MAX_PHOTO_FILE_BYTES) {
@@ -80,24 +67,19 @@ async function uploadPhotoFile(file: File): Promise<string> {
 
 export function AdminDashboardPage() {
   const role = useAppSelector((s) => s.auth.user?.role);
-  const [tab, setTab] = useState<Tab>(() => {
-    if (typeof window === "undefined") return "dept";
-    const saved = window.localStorage.getItem(ADMIN_TAB_STORAGE_KEY);
-    return isTab(saved) ? saved : "dept";
-  });
+  const { section } = useParams<{ section: string }>();
+  const navigate = useNavigate();
+  const allowedTabs = getAllowedAdminTabs(role);
+  const resolvedTab = tabFromSection(section);
+  const tab: Tab =
+    resolvedTab && allowedTabs.includes(resolvedTab) ? resolvedTab : (allowedTabs[0] ?? "dept");
   const qc = useQueryClient();
 
   useEffect(() => {
-    const allowed = getAllowedTabs(role);
-    if (!allowed.includes(tab)) {
-      setTab(allowed[0] ?? "dept");
+    if (!section || !resolvedTab || !allowedTabs.includes(resolvedTab)) {
+      navigate(adminPath(tab), { replace: true });
     }
-  }, [role, tab]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(ADMIN_TAB_STORAGE_KEY, tab);
-  }, [tab]);
+  }, [section, resolvedTab, allowedTabs, tab, navigate]);
 
   const deptQ = useQuery({
     queryKey: ["admin-departments"],
@@ -110,8 +92,8 @@ export function AdminDashboardPage() {
     queryFn: async () => (await adminListDoctors()).doctors,
     enabled: tab === "docs" || tab === "avail" || tab === "queue",
   });
-  const [apptDate, setApptDate] = useState<string | null>(null);
 
+  const [apptDate, setApptDate] = useState<string | null>(null);
   const apptQ = useQuery({
     queryKey: ["admin-appointments", apptDate],
     queryFn: async () => {
@@ -174,6 +156,7 @@ export function AdminDashboardPage() {
   const [endT, setEndT] = useState(defaultAvailTimesSeed.end);
   const [queueDoctor, setQueueDoctor] = useState("");
   const [queueDate, setQueueDate] = useState<string | null>(localTodayStr());
+  const [queueSession, setQueueSession] = useState("");
 
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPassword, setStaffPassword] = useState("");
@@ -261,7 +244,6 @@ export function AdminDashboardPage() {
     } else if (canOpenBelow) {
       top = rect.bottom + APPT_MENU_GAP;
     } else {
-      // Fallback for very small viewports: keep menu fully inside viewport.
       top = Math.min(maxY, Math.max(minY, rect.bottom + APPT_MENU_GAP));
     }
 
@@ -420,11 +402,44 @@ export function AdminDashboardPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const queueSessionsQ = useQuery({
+    queryKey: ["admin-sessions", queueDoctor, queueDate],
+    queryFn: () => adminListSessions(queueDoctor, queueDate ?? undefined),
+    enabled: tab === "queue" && Boolean(queueDoctor) && Boolean(queueDate),
+  });
+
+  const queueSnapshotQ = useQuery({
+    queryKey: ["admin-queue-snapshot", queueDoctor, queueSession, queueDate],
+    queryFn: () =>
+      fetchDoctorQueue(queueDoctor, {
+        date: queueDate ?? undefined,
+        sessionId: queueSession || undefined,
+      }),
+    enabled: tab === "queue" && Boolean(queueDoctor) && Boolean(queueDate),
+  });
+
+  useEffect(() => {
+    const sessions = queueSessionsQ.data?.sessions;
+    if (!sessions?.length) {
+      setQueueSession("");
+      return;
+    }
+    if (!sessions.some((s) => s.id === queueSession)) {
+      setQueueSession(sessions[0]!.id);
+    }
+  }, [queueSessionsQ.data?.sessions, queueSession]);
+
   const nextTok = useMutation({
-    mutationFn: () => adminAdvanceQueue(queueDoctor || (docQ.data?.[0]?.id ?? ""), queueDate ?? undefined),
+    mutationFn: () => {
+      const sid = queueSession || queueSessionsQ.data?.sessions[0]?.id;
+      if (!sid) throw new Error("Select a clinic session");
+      return adminSessionNext(sid);
+    },
     onSuccess: (r) => {
       if (r.advanced) toast.success(`Called ${r.token}`);
       else toast.message(r.message ?? "No tokens");
+      qc.invalidateQueries({ queryKey: ["admin-queue-snapshot"] });
+      qc.invalidateQueries({ queryKey: ["admin-appointments"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -480,16 +495,6 @@ export function AdminDashboardPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "dept", label: "Departments" },
-    { id: "docs", label: "Doctors" },
-    { id: "avail", label: "Availability" },
-    { id: "appt", label: "Visits" },
-    { id: "queue", label: "Queue" },
-  ];
-  if (role === "ADMIN" || role === "SUPER_ADMIN") tabs.push({ id: "patients", label: "Patients" });
-  if (role === "SUPER_ADMIN") tabs.push({ id: "staff", label: "Admins" });
-
   const doctorOptions = (docQ.data ?? []).map((d) => ({ value: d.id, label: d.name }));
   const availEditLockedSummary = useMemo(() => {
     if (!availEditingId || !availListQ.data) return null;
@@ -512,32 +517,7 @@ export function AdminDashboardPage() {
 
   return (
     <div>
-      <PageHeader title="Admin" />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => {
-              setTab(t.id);
-              setEditingDoc(null);
-              setEditingDept(null);
-              setDeptModal(null);
-              setDocModal(null);
-              setAvailModalOpen(false);
-              setAvailEditingId(null);
-              setAvailDeleteTarget(null);
-            }}
-            className={`min-h-11 rounded-full px-4 text-sm font-semibold shadow-sm transition ${
-              tab === t.id
-                ? "bg-teal-600 text-white shadow-md shadow-teal-900/25 dark:bg-teal-500 dark:shadow-teal-950/35"
-                : "border border-slate-200/90 bg-white text-slate-700 hover:border-teal-200 hover:bg-teal-50/70 hover:text-teal-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-teal-800 dark:hover:bg-slate-800 dark:hover:text-teal-100"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <PageHeader title={ADMIN_NAV_META[tab].label} />
 
       {tab === "dept" && (
         <div className="flex flex-col gap-4">
@@ -873,6 +853,7 @@ export function AdminDashboardPage() {
                     <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Token</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Scheduled</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Doctor</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Department</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Patient</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Status</th>
                     <th className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-300">Actions</th>
@@ -882,7 +863,7 @@ export function AdminDashboardPage() {
                   {apptQ.data?.appointments.map((a, idx) => (
                     <tr key={a.id} className="border-t border-slate-100 align-top dark:border-slate-800">
                       <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-teal-800 dark:text-teal-300">{formatAdminToken(a.token)}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-teal-800 dark:text-teal-300">{a.token}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                         {new Date(a.scheduledAt).toLocaleString(undefined, {
                           year: "numeric",
@@ -893,13 +874,14 @@ export function AdminDashboardPage() {
                         })}
                       </td>
                       <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{a.doctorName}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{a.departmentName}</td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                         <p>{a.patient.name}</p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">{a.patient.email}</p>
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                          {a.status}
+                          {formatAppointmentStatus(a.status)}
                         </span>
                       </td>
                       <td className="relative px-4 py-3">
@@ -929,7 +911,7 @@ export function AdminDashboardPage() {
                   ))}
                   {!apptQ.data?.appointments.length && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                      <td colSpan={8} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                         No visits found.
                       </td>
                     </tr>
@@ -944,7 +926,7 @@ export function AdminDashboardPage() {
                 style={{ top: apptActionMenuPos.top, left: apptActionMenuPos.left }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {(["WAITING", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const).map((s) => {
+                {(["WAITING", "CHECKED_IN", "IN_PROGRESS", "SKIPPED", "COMPLETED", "CANCELLED"] as const).map((s) => {
                   const current = apptQ.data?.appointments.find((x) => x.id === apptActionOpenId)?.status;
                   return (
                     <button
@@ -958,7 +940,7 @@ export function AdminDashboardPage() {
                       }}
                       disabled={patchAppt.isPending || current === s}
                     >
-                      <span>{s}</span>
+                      <span>{formatAppointmentStatus(s)}</span>
                       {current === s && <span className="text-[9px] text-slate-500 dark:text-slate-400">Current</span>}
                     </button>
                   );
@@ -980,12 +962,38 @@ export function AdminDashboardPage() {
             onChange={setQueueDate}
             className="mb-3"
           />
+          {queueSessionsQ.data && queueSessionsQ.data.sessions.length > 1 && (
+            <>
+              <label className="mb-2 block text-sm">Session</label>
+              <DropdownSelect
+                className="mb-3"
+                value={queueSession}
+                onChange={setQueueSession}
+                options={queueSessionsQ.data.sessions.map((s) => ({
+                  value: s.id,
+                  label: `${s.label} (${s.startTime}–${s.endTime})`,
+                }))}
+              />
+            </>
+          )}
+          {queueSnapshotQ.data && (
+            <div className="mb-4 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">
+              <p className="text-xs font-medium uppercase text-slate-500">Now serving</p>
+              <p className="font-mono text-xl font-semibold text-teal-800 dark:text-teal-300">
+                {queueSnapshotQ.data.current?.token ?? "—"}
+              </p>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                {queueSnapshotQ.data.remainingPatients} waiting · issued{" "}
+                {queueSnapshotQ.data.session.tokenCounter}
+              </p>
+            </div>
+          )}
           <Button
             className="w-full"
             onClick={() => nextTok.mutate()}
-            disabled={nextTok.isPending || !docQ.data?.length}
+            disabled={nextTok.isPending || !queueDoctor || !queueSessionsQ.data?.sessions.length}
           >
-            Next token
+            Next patient
           </Button>
         </Card>
       )}
@@ -1062,21 +1070,15 @@ export function AdminDashboardPage() {
                 </table>
               </div>
             )}
+            {patientsQ.data && (
+              <TablePagination
+                page={patientPage}
+                pageSize={patientsQ.data.pageSize}
+                total={patientsQ.data.total}
+                onPageChange={setPatientPage}
+              />
+            )}
           </Card>
-          {patientsQ.data && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="ghost" disabled={patientPage <= 1} onClick={() => setPatientPage((p) => p - 1)}>
-                Previous page
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={patientPage * patientsQ.data.pageSize >= patientsQ.data.total}
-                onClick={() => setPatientPage((p) => p + 1)}
-              >
-                Next page
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
@@ -1094,13 +1096,13 @@ export function AdminDashboardPage() {
             confirmDialog.kind === "deactivate" ? (
               <>
                 <span className="font-medium text-slate-800 dark:text-slate-200">{confirmDialog.doctor.name}</span> will
-                be hidden from public booking and the care directory. You can still see them in this admin list as
+                be hidden from public booking and the specialty directory. You can still see them in this admin list as
                 inactive.
               </>
             ) : confirmDialog.kind === "activate" ? (
               <>
                 <span className="font-medium text-slate-800 dark:text-slate-200">{confirmDialog.doctor.name}</span> will
-                become visible in public booking and the care directory again.
+                become visible in public booking and the specialty directory again.
               </>
             ) : (
               <>
@@ -1134,9 +1136,9 @@ export function AdminDashboardPage() {
       {tab === "staff" && role === "SUPER_ADMIN" && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-slate-600 dark:text-slate-400">
+            {/* <p className="text-sm text-slate-600 dark:text-slate-400">
               Clinic administrators ({staffQ.data?.total ?? "…"}). Super admins are not listed here.
-            </p>
+            </p> */}
             <Button
               onClick={() => {
                 resetStaffForm();
@@ -1213,21 +1215,15 @@ export function AdminDashboardPage() {
                 </table>
               </div>
             )}
+            {staffQ.data && (
+              <TablePagination
+                page={staffPage}
+                pageSize={staffQ.data.pageSize}
+                total={staffQ.data.total}
+                onPageChange={setStaffPage}
+              />
+            )}
           </Card>
-          {staffQ.data && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="ghost" disabled={staffPage <= 1} onClick={() => setStaffPage((p) => p - 1)}>
-                Previous page
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={staffPage * staffQ.data.pageSize >= staffQ.data.total}
-                onClick={() => setStaffPage((p) => p + 1)}
-              >
-                Next page
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
@@ -1547,12 +1543,7 @@ function AdminStaffModal({
 
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        aria-label="Dismiss dialog"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
       <div className="relative w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">
           {mode === "create" ? "Create admin" : "Edit admin"}
@@ -1634,12 +1625,7 @@ function EditUserNameModal({
 }) {
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        aria-label="Dismiss dialog"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
       <div className="relative w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
         <form
@@ -1713,12 +1699,7 @@ function AvailabilityCreateModal({
 
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        aria-label="Dismiss dialog"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
       <div className="relative max-h-[min(90vh,640px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">
           {isEdit ? "Edit availability" : "Create availability"}
@@ -1810,12 +1791,7 @@ function DepartmentModal({
 }) {
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        aria-label="Dismiss dialog"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
       <div className="relative w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
         <form
@@ -1894,12 +1870,7 @@ function DoctorModal({
 }) {
   return (
     <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        aria-label="Dismiss dialog"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
       <div className="relative w-full max-w-2xl rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
         <form
