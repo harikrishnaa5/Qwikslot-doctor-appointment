@@ -20,13 +20,13 @@ export async function bookAppointment(input: {
   });
 }
 
-export async function fetchMyAppointments() {
+export async function fetchMyAppointments(params: URLSearchParams) {
   return apiFetch<{
     appointments: AppointmentRow[];
     total: number;
     page: number;
     pageSize: number;
-  }>("/api/v1/appointments/mine");
+  }>(`/api/v1/appointments/mine?${params.toString()}`);
 }
 
 export async function fetchMyAppointment(id: string) {

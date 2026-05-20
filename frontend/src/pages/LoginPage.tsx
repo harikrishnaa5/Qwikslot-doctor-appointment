@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { AuthLayout } from "../components/AuthLayout";
 import { Card, Button } from "../components/ui";
@@ -20,6 +21,7 @@ export function LoginPage({ variant = "patient" }: LoginPageProps) {
   const loc = useLocation() as { state?: { from?: string } };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (user) nav(adminLoginRedirect(user.role, loc.state?.from), { replace: true });
@@ -57,15 +59,25 @@ export function LoginPage({ variant = "patient" }: LoginPageProps) {
           </label>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
             Password
-            <input
-              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-base text-slate-900 outline-none ring-teal-500/40 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              autoComplete="new-password"
-              name="login-password-no-autofill"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              required
-            />
+            <div className="relative mt-1">
+              <input
+                className="w-full rounded-lg border border-slate-200 bg-white py-3 pl-3 pr-11 text-base text-slate-900 outline-none ring-teal-500/40 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                autoComplete="new-password"
+                name="login-password-no-autofill"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type={showPassword ? "text" : "password"}
+                required
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
           </label>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}

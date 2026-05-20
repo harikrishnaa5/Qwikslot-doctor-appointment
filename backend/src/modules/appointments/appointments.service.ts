@@ -64,15 +64,15 @@ export async function bookAppointment(
       });
     });
 
-    await realtime.emitSessionQueue(app, appointment.sessionId);
+    await realtime.emitSessionQueue(app, session.id);
 
     return {
       appointment: {
         id: appointment.id,
         doctorId: appointment.doctorId,
         doctorName: appointment.doctor.name,
-        sessionId: appointment.sessionId,
-        sessionLabel: appointment.session.label,
+        sessionId: session.id,
+        sessionLabel: session.label,
         scheduledAt: appointment.scheduledAt.toISOString(),
         status: appointment.status,
         token: formatTokenDisplay(appointment.tokenNumber),
@@ -89,6 +89,11 @@ export async function bookAppointment(
   }
 }
 
+const ACTIVE_APPOINTMENT_STATUSES = [
+  AppointmentStatus.WAITING,
+  AppointmentStatus.IN_PROGRESS,
+] as const;
+
 export async function listMyAppointments(
   app: FastifyInstance,
   userId: string,
@@ -103,6 +108,11 @@ export async function listMyAppointments(
           date: dateOnlyUtc(q.date),
         }
       : {}),
+    ...(q.scope === "active"
+      ? { status: { in: [...ACTIVE_APPOINTMENT_STATUSES] } }
+      : q.scope === "history"
+        ? { status: { notIn: [...ACTIVE_APPOINTMENT_STATUSES] } }
+        : {}),
   };
 
   const [total, rows] = await Promise.all([
@@ -153,13 +163,14 @@ export async function getMyAppointment(app: FastifyInstance, userId: string, id:
     },
   });
   if (!row) throw new AppError(404, "Appointment not found", "NOT_FOUND");
+  if (!row.session) throw new AppError(500, "Appointment session not found", "SESSION_MISSING");
 
   return {
     id: row.id,
     doctorId: row.doctorId,
     doctorName: row.doctor.name,
     departmentName: row.doctor.department.name,
-    sessionId: row.sessionId,
+    sessionId: row.sessionId ?? row.session.id,
     session: {
       id: row.session.id,
       label: row.session.label,
@@ -205,7 +216,9 @@ export async function updateAppointmentStatus(
     include: { doctor: { select: { id: true, name: true } } },
   });
 
-  await realtime.emitSessionQueue(app, existing.sessionId);
+  if (existing.sessionId) {
+    await realtime.emitSessionQueue(app, existing.sessionId);
+  }
 
   return {
     id: updated.id,

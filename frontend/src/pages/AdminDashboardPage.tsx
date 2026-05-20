@@ -51,6 +51,8 @@ import {
 } from "../lib/adminNav";
 
 const MAX_PHOTO_FILE_BYTES = 5 * 1024 * 1024;
+const TABLE_PAGE_SIZE = 15;
+const OPTIONS_PAGE_SIZE = 500;
 
 type Tab = AdminTab;
 type StaffModalState = { mode: "create" } | { mode: "edit"; user: { id: string; name: string; email: string; role: string } };
@@ -81,28 +83,57 @@ export function AdminDashboardPage() {
     }
   }, [section, resolvedTab, allowedTabs, tab, navigate]);
 
-  const deptQ = useQuery({
-    queryKey: ["admin-departments"],
-    queryFn: async () => (await adminListDepartments()).departments,
-    enabled: tab === "dept" || tab === "docs",
+  const [deptPage, setDeptPage] = useState(1);
+  const deptTableQ = useQuery({
+    queryKey: ["admin-departments", "table", deptPage],
+    queryFn: async () => {
+      const p = new URLSearchParams({ page: String(deptPage), pageSize: String(TABLE_PAGE_SIZE) });
+      return adminListDepartments(p);
+    },
+    enabled: tab === "dept",
+  });
+  const deptOptionsQ = useQuery({
+    queryKey: ["admin-departments", "options"],
+    queryFn: async () => {
+      const p = new URLSearchParams({ page: "1", pageSize: String(OPTIONS_PAGE_SIZE) });
+      return (await adminListDepartments(p)).departments;
+    },
+    enabled: tab === "docs" || tab === "avail",
   });
 
-  const docQ = useQuery({
-    queryKey: ["admin-doctors"],
-    queryFn: async () => (await adminListDoctors()).doctors,
-    enabled: tab === "docs" || tab === "avail" || tab === "queue",
+  const [docPage, setDocPage] = useState(1);
+  const docTableQ = useQuery({
+    queryKey: ["admin-doctors", "table", docPage],
+    queryFn: async () => {
+      const p = new URLSearchParams({ page: String(docPage), pageSize: String(TABLE_PAGE_SIZE) });
+      return adminListDoctors(p);
+    },
+    enabled: tab === "docs",
+  });
+  const docOptionsQ = useQuery({
+    queryKey: ["admin-doctors", "options"],
+    queryFn: async () => {
+      const p = new URLSearchParams({ page: "1", pageSize: String(OPTIONS_PAGE_SIZE) });
+      return (await adminListDoctors(p)).doctors;
+    },
+    enabled: tab === "avail" || tab === "queue",
   });
 
   const [apptDate, setApptDate] = useState<string | null>(null);
+  const [apptPage, setApptPage] = useState(1);
   const apptQ = useQuery({
-    queryKey: ["admin-appointments", apptDate],
+    queryKey: ["admin-appointments", apptDate, apptPage],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: "1", pageSize: "30" });
+      const params = new URLSearchParams({ page: String(apptPage), pageSize: String(TABLE_PAGE_SIZE) });
       if (apptDate) params.set("date", apptDate);
       return adminListAppointments(params);
     },
     enabled: tab === "appt",
   });
+
+  useEffect(() => {
+    setApptPage(1);
+  }, [apptDate]);
 
   const [patientPage, setPatientPage] = useState(1);
   const patientsQ = useQuery({
@@ -144,11 +175,19 @@ export function AdminDashboardPage() {
   const [modalAvailDocId, setModalAvailDocId] = useState("");
   const [availDeleteTarget, setAvailDeleteTarget] = useState<AdminAvailabilityRow | null>(null);
 
+  const [availPage, setAvailPage] = useState(1);
   const availListQ = useQuery({
-    queryKey: ["admin-availabilities", docId],
-    queryFn: async () => (await adminListDoctorAvailabilities(docId)).availabilities,
+    queryKey: ["admin-availabilities", docId, availPage],
+    queryFn: async () => {
+      const p = new URLSearchParams({ page: String(availPage), pageSize: String(TABLE_PAGE_SIZE) });
+      return adminListDoctorAvailabilities(docId, p);
+    },
     enabled: tab === "avail" && Boolean(docId),
   });
+
+  useEffect(() => {
+    setAvailPage(1);
+  }, [docId]);
 
   const [availDate, setAvailDate] = useState<string | null>(localTodayStr());
   const defaultAvailTimesSeed = useMemo(() => defaultAvailabilityStartEnd(), []);
@@ -495,10 +534,13 @@ export function AdminDashboardPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const doctorOptions = (docQ.data ?? []).map((d) => ({ value: d.id, label: d.name }));
+  const doctorOptions = (docOptionsQ.data ?? docTableQ.data?.doctors ?? []).map((d) => ({
+    value: d.id,
+    label: d.name,
+  }));
   const availEditLockedSummary = useMemo(() => {
-    if (!availEditingId || !availListQ.data) return null;
-    const row = availListQ.data.find((r) => r.id === availEditingId);
+    if (!availEditingId || !availListQ.data?.availabilities) return null;
+    const row = availListQ.data.availabilities.find((r) => r.id === availEditingId);
     if (!row) return null;
     const ymd = row.date.slice(0, 10);
     const [y, mo, d] = ymd.split("-").map(Number);
@@ -512,7 +554,11 @@ export function AdminDashboardPage() {
       }),
     };
   }, [availEditingId, availListQ.data, doctorOptions]);
-  const departmentOptions = (deptQ.data ?? []).map((d) => ({ value: d.id, label: d.name }));
+  const departmentOptions = (deptOptionsQ.data ?? deptTableQ.data?.departments ?? []).map((d) => ({
+    value: d.id,
+    label: d.name,
+  }));
+  const availRows = availListQ.data?.availabilities ?? [];
   const canManageUsers = role === "SUPER_ADMIN";
 
   return (
@@ -523,7 +569,7 @@ export function AdminDashboardPage() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Departments ({deptQ.data?.length ?? "…"} total).
+              Departments ({deptTableQ.data?.total ?? "…"} total).
             </p>
             <Button
               onClick={() => {
@@ -537,7 +583,7 @@ export function AdminDashboardPage() {
           </div>
 
           <Card className="overflow-hidden p-0">
-            {deptQ.isLoading ? (
+            {deptTableQ.isLoading ? (
               <Skeleton className="h-44 w-full rounded-none" />
             ) : (
               <div className="overflow-x-auto">
@@ -552,9 +598,11 @@ export function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {deptQ.data?.map((d, idx) => (
+                    {deptTableQ.data?.departments.map((d, idx) => (
                       <tr key={d.id} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{idx + 1}</td>
+                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                          {(deptPage - 1) * (deptTableQ.data?.pageSize ?? TABLE_PAGE_SIZE) + idx + 1}
+                        </td>
                         <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{d.name}</td>
                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{d.description ?? "—"}</td>
                         <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
@@ -584,7 +632,7 @@ export function AdminDashboardPage() {
                         </td>
                       </tr>
                     ))}
-                    {!deptQ.data?.length && (
+                    {!deptTableQ.data?.departments.length && (
                       <tr>
                         <td colSpan={5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                           No departments found.
@@ -595,6 +643,14 @@ export function AdminDashboardPage() {
                 </table>
               </div>
             )}
+            {deptTableQ.data && (
+              <TablePagination
+                page={deptPage}
+                pageSize={deptTableQ.data.pageSize}
+                total={deptTableQ.data.total}
+                onPageChange={setDeptPage}
+              />
+            )}
           </Card>
         </div>
       )}
@@ -603,7 +659,7 @@ export function AdminDashboardPage() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Doctors ({docQ.data?.length ?? "…"} total).
+              Doctors ({docTableQ.data?.total ?? "…"} total).
             </p>
             <Button
               onClick={() => {
@@ -622,7 +678,7 @@ export function AdminDashboardPage() {
           </div>
 
           <Card className="overflow-hidden p-0">
-            {docQ.isLoading ? (
+            {docTableQ.isLoading ? (
               <Skeleton className="h-44 w-full rounded-none" />
             ) : (
               <div className="overflow-x-auto">
@@ -639,9 +695,11 @@ export function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {docQ.data?.map((d, idx) => (
+                    {docTableQ.data?.doctors.map((d, idx) => (
                       <tr key={d.id} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{idx + 1}</td>
+                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                          {(docPage - 1) * (docTableQ.data?.pageSize ?? TABLE_PAGE_SIZE) + idx + 1}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <DoctorAvatar name={d.name} imageUrl={d.imageUrl} size="sm" />
@@ -696,7 +754,7 @@ export function AdminDashboardPage() {
                         </td>
                       </tr>
                     ))}
-                    {!docQ.data?.length && (
+                    {!docTableQ.data?.doctors.length && (
                       <tr>
                         <td colSpan={7} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                           No doctors found.
@@ -706,6 +764,14 @@ export function AdminDashboardPage() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {docTableQ.data && (
+              <TablePagination
+                page={docPage}
+                pageSize={docTableQ.data.pageSize}
+                total={docTableQ.data.total}
+                onPageChange={setDocPage}
+              />
             )}
           </Card>
         </div>
@@ -766,7 +832,7 @@ export function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {availListQ.data?.map((row, idx) => {
+                    {availRows.map((row, idx) => {
                       const ymd = row.date.slice(0, 10);
                       const [y, mo, d] = ymd.split("-").map(Number);
                       const dateLabel = new Date(y, mo - 1, d).toLocaleDateString(undefined, {
@@ -777,7 +843,9 @@ export function AdminDashboardPage() {
                       });
                       return (
                         <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{idx + 1}</td>
+                          <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                            {(availPage - 1) * (availListQ.data?.pageSize ?? TABLE_PAGE_SIZE) + idx + 1}
+                          </td>
                           <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{dateLabel}</td>
                           <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                             {formatHm12Hour(row.startTime, ymd)}
@@ -816,9 +884,9 @@ export function AdminDashboardPage() {
                         </tr>
                       );
                     })}
-                    {!availListQ.data?.length && (
+                    {!availRows.length && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
                           No availability saved for this doctor yet.
                         </td>
                       </tr>
@@ -827,6 +895,14 @@ export function AdminDashboardPage() {
                 </table>
               </div>
             )}
+            {availListQ.data && docId ? (
+              <TablePagination
+                page={availPage}
+                pageSize={availListQ.data.pageSize}
+                total={availListQ.data.total}
+                onPageChange={setAvailPage}
+              />
+            ) : null}
           </Card>
         </div>
       )}
@@ -862,7 +938,9 @@ export function AdminDashboardPage() {
                 <tbody>
                   {apptQ.data?.appointments.map((a, idx) => (
                     <tr key={a.id} className="border-t border-slate-100 align-top dark:border-slate-800">
-                      <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                        {(apptPage - 1) * (apptQ.data?.pageSize ?? TABLE_PAGE_SIZE) + idx + 1}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-teal-800 dark:text-teal-300">{a.token}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                         {new Date(a.scheduledAt).toLocaleString(undefined, {
@@ -919,6 +997,14 @@ export function AdminDashboardPage() {
                 </tbody>
               </table>
               </div>
+            )}
+            {apptQ.data && (
+              <TablePagination
+                page={apptPage}
+                pageSize={apptQ.data.pageSize}
+                total={apptQ.data.total}
+                onPageChange={setApptPage}
+              />
             )}
             {apptActionOpenId && apptActionMenuPos && (
               <div

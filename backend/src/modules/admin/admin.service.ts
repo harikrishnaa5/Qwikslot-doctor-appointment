@@ -10,6 +10,7 @@ import { formatTokenDisplay } from "../../lib/tokens.js";
 import { ensureSessionForAvailability } from "../queue/session.service.js";
 import type {
   adminAppointmentListSchema,
+  adminResourceListQuerySchema,
   adminUserListQuerySchema,
   createDepartmentSchema,
   createDoctorSchema,
@@ -22,11 +23,21 @@ import type {
 } from "./admin.schemas.js";
 import type { z } from "zod";
 
-export async function listDepartmentsAdmin(app: FastifyInstance) {
-  return app.prisma.department.findMany({
-    orderBy: { name: "asc" },
-    include: { _count: { select: { doctors: true } } },
-  });
+export async function listDepartmentsAdmin(
+  app: FastifyInstance,
+  q: z.infer<typeof adminResourceListQuerySchema>
+) {
+  const { skip, take } = skipTake(q);
+  const [total, rows] = await Promise.all([
+    app.prisma.department.count(),
+    app.prisma.department.findMany({
+      orderBy: { name: "asc" },
+      skip,
+      take,
+      include: { _count: { select: { doctors: true } } },
+    }),
+  ]);
+  return { page: q.page, pageSize: q.pageSize, total, departments: rows };
 }
 
 export async function createDepartment(app: FastifyInstance, body: z.infer<typeof createDepartmentSchema>) {
@@ -62,14 +73,21 @@ export async function deleteDepartment(app: FastifyInstance, id: string) {
   }
 }
 
-export async function listDoctorsAdmin(app: FastifyInstance) {
-  return app.prisma.doctor.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      department: { select: { id: true, name: true } },
-      user: { select: { id: true, email: true } },
-    },
-  });
+export async function listDoctorsAdmin(app: FastifyInstance, q: z.infer<typeof adminResourceListQuerySchema>) {
+  const { skip, take } = skipTake(q);
+  const [total, rows] = await Promise.all([
+    app.prisma.doctor.count(),
+    app.prisma.doctor.findMany({
+      orderBy: { name: "asc" },
+      skip,
+      take,
+      include: {
+        department: { select: { id: true, name: true } },
+        user: { select: { id: true, email: true } },
+      },
+    }),
+  ]);
+  return { page: q.page, pageSize: q.pageSize, total, doctors: rows };
 }
 
 export async function createDoctor(app: FastifyInstance, body: z.infer<typeof createDoctorSchema>) {
@@ -185,11 +203,23 @@ export async function deleteAvailability(app: FastifyInstance, id: string) {
   await syncScheduleNoticesForDoctorDate(app, doctorId, date);
 }
 
-export async function listAvailabilities(app: FastifyInstance, doctorId: string) {
-  return app.prisma.availability.findMany({
-    where: { doctorId },
-    orderBy: { date: "asc" },
-  });
+export async function listAvailabilities(
+  app: FastifyInstance,
+  doctorId: string,
+  q: z.infer<typeof adminResourceListQuerySchema>
+) {
+  const { skip, take } = skipTake(q);
+  const where = { doctorId };
+  const [total, rows] = await Promise.all([
+    app.prisma.availability.count({ where }),
+    app.prisma.availability.findMany({
+      where,
+      orderBy: { date: "asc" },
+      skip,
+      take,
+    }),
+  ]);
+  return { page: q.page, pageSize: q.pageSize, total, availabilities: rows };
 }
 
 export async function listAppointmentsAdmin(

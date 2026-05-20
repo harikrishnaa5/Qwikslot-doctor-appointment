@@ -114,7 +114,9 @@ export async function completeAppointment(request: FastifyRequest, reply: Fastif
     const { appointmentId } = request.params as { appointmentId: string };
     const result = await queueService.completePatient(request.server, appointmentId);
     const { emitSessionQueue } = await import("./queue.realtime.js");
-    await emitSessionQueue(request.server, result.appointment.sessionId);
+    if (result.appointment.sessionId) {
+      await emitSessionQueue(request.server, result.appointment.sessionId);
+    }
     return reply.send(result);
   } catch (err) {
     return sendError(reply, err);
@@ -126,7 +128,9 @@ export async function checkInAppointment(request: FastifyRequest, reply: Fastify
     const { appointmentId } = request.params as { appointmentId: string };
     const result = await queueService.checkInPatient(request.server, appointmentId);
     const { emitSessionQueue } = await import("./queue.realtime.js");
-    await emitSessionQueue(request.server, result.appointment.sessionId);
+    if (result.appointment.sessionId) {
+      await emitSessionQueue(request.server, result.appointment.sessionId);
+    }
     return reply.send(result);
   } catch (err) {
     return sendError(reply, err);

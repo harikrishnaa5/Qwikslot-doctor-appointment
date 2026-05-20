@@ -6,14 +6,95 @@
 @theme {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   --radius-card: 0.75rem;
+  --scrollbar-size: 0.5rem;
+  --color-scrollbar-track: rgb(241 245 249 / 0.65);
+  --color-scrollbar-thumb: rgb(148 163 184 / 0.85);
+  --color-scrollbar-thumb-hover: rgb(13 148 136);
+  --color-scrollbar-thumb-active: rgb(15 118 110);
 }
 
 @layer base {
   html {
-    @apply scroll-smooth;
+    scroll-behavior: smooth;
+    scrollbar-gutter: stable;
   }
+
   body {
     @apply bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  .dark {
+    --color-scrollbar-track: rgb(15 23 42 / 0.85);
+    --color-scrollbar-thumb: rgb(71 85 105 / 0.9);
+    --color-scrollbar-thumb-hover: rgb(20 184 166);
+    --color-scrollbar-thumb-active: rgb(45 212 191);
+  }
+
+  /* Custom scrollbars — Firefox */
+  html,
+  body,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast])) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
+  }
+
+  /* Custom scrollbars — Chromium / Safari */
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast]))::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  html::-webkit-scrollbar-track,
+  body::-webkit-scrollbar-track,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast]))::-webkit-scrollbar-track {
+    background: var(--color-scrollbar-track);
+    border-radius: 9999px;
+  }
+
+  html::-webkit-scrollbar-thumb,
+  body::-webkit-scrollbar-thumb,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast]))::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--color-scrollbar-thumb) 0%, rgb(100 116 139 / 0.9) 100%);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    min-height: 2.5rem;
+    transition:
+      background 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  html::-webkit-scrollbar-thumb:hover,
+  body::-webkit-scrollbar-thumb:hover,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast]))::-webkit-scrollbar-thumb:hover {
+    background: var(--color-scrollbar-thumb-hover);
+    box-shadow: 0 0 0 1px rgb(45 212 191 / 0.25);
+  }
+
+  html::-webkit-scrollbar-thumb:active,
+  body::-webkit-scrollbar-thumb:active,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast]))::-webkit-scrollbar-thumb:active {
+    background: var(--color-scrollbar-thumb-active);
+  }
+
+  html::-webkit-scrollbar-corner,
+  body::-webkit-scrollbar-corner,
+  :where(*:not([data-sonner-toaster], [data-sonner-toast]))::-webkit-scrollbar-corner {
+    background: var(--color-scrollbar-track);
+  }
+
+  :where(.overflow-y-auto, .overflow-x-auto, .overflow-auto, main, [aria-label="Admin menu"]) {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html,
+    :where(.overflow-y-auto, .overflow-x-auto, .overflow-auto, main) {
+      scroll-behavior: auto;
+    }
   }
 
   /* Consistent pointer cursor for interactive controls */

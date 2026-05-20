@@ -8,6 +8,7 @@ import * as appointmentService from "../appointments/appointments.service.js";
 import { patchAppointmentStatusSchema } from "../appointments/appointments.schemas.js";
 import {
   adminAppointmentListSchema,
+  adminResourceListQuerySchema,
   adminUserListQuerySchema,
   createDepartmentSchema,
   createDoctorSchema,
@@ -25,8 +26,9 @@ const queueDateSchema = z.object({
 
 export async function listDepartments(request: FastifyRequest, reply: FastifyReply) {
   try {
-    const rows = await adminService.listDepartmentsAdmin(request.server);
-    return reply.send({ departments: rows });
+    const q = adminResourceListQuerySchema.parse(request.query);
+    const result = await adminService.listDepartmentsAdmin(request.server, q);
+    return reply.send(result);
   } catch (err) {
     return sendError(reply, err);
   }
@@ -65,8 +67,9 @@ export async function deleteDepartment(request: FastifyRequest, reply: FastifyRe
 
 export async function listDoctors(request: FastifyRequest, reply: FastifyReply) {
   try {
-    const rows = await adminService.listDoctorsAdmin(request.server);
-    return reply.send({ doctors: rows });
+    const q = adminResourceListQuerySchema.parse(request.query);
+    const result = await adminService.listDoctorsAdmin(request.server, q);
+    return reply.send(result);
   } catch (err) {
     return sendError(reply, err);
   }
@@ -134,8 +137,9 @@ export async function setAvailability(request: FastifyRequest, reply: FastifyRep
 export async function listAvailability(request: FastifyRequest, reply: FastifyReply) {
   try {
     const { doctorId } = request.params as { doctorId: string };
-    const rows = await adminService.listAvailabilities(request.server, doctorId);
-    return reply.send({ availabilities: rows });
+    const q = adminResourceListQuerySchema.parse(request.query);
+    const result = await adminService.listAvailabilities(request.server, doctorId, q);
+    return reply.send(result);
   } catch (err) {
     return sendError(reply, err);
   }

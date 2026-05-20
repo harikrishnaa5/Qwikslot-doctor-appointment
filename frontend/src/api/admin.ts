@@ -28,8 +28,10 @@ export type AdminUserRow = {
   createdAt: string;
 };
 
-export async function adminListDepartments() {
-  return apiFetch<{ departments: AdminDepartment[] }>("/api/v1/admin/departments");
+export async function adminListDepartments(params: URLSearchParams) {
+  return apiFetch<{ departments: AdminDepartment[]; total: number; page: number; pageSize: number }>(
+    `/api/v1/admin/departments?${params.toString()}`
+  );
 }
 
 export async function adminCreateDepartment(body: { name: string; description?: string }) {
@@ -50,8 +52,10 @@ export async function adminDeleteDepartment(id: string) {
   return apiFetch<void>(`/api/v1/admin/departments/${id}`, { method: "DELETE" });
 }
 
-export async function adminListDoctors() {
-  return apiFetch<{ doctors: AdminDoctor[] }>("/api/v1/admin/doctors");
+export async function adminListDoctors(params: URLSearchParams) {
+  return apiFetch<{ doctors: AdminDoctor[]; total: number; page: number; pageSize: number }>(
+    `/api/v1/admin/doctors?${params.toString()}`
+  );
 }
 
 export async function adminUploadDoctorPhoto(file: File) {
@@ -146,9 +150,9 @@ export async function adminDeleteAvailability(id: string) {
   });
 }
 
-export async function adminListDoctorAvailabilities(doctorId: string) {
-  return apiFetch<{ availabilities: AdminAvailabilityRow[] }>(
-    `/api/v1/admin/doctors/${encodeURIComponent(doctorId)}/availability`
+export async function adminListDoctorAvailabilities(doctorId: string, params: URLSearchParams) {
+  return apiFetch<{ availabilities: AdminAvailabilityRow[]; total: number; page: number; pageSize: number }>(
+    `/api/v1/admin/doctors/${encodeURIComponent(doctorId)}/availability?${params.toString()}`
   );
 }
 
@@ -166,6 +170,8 @@ export async function adminListAppointments(params: URLSearchParams) {
       token: string;
     }[];
     total: number;
+    page: number;
+    pageSize: number;
   }>(`/api/v1/admin/appointments?${params.toString()}`);
 }
 
