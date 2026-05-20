@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AppointmentStatus {
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  doctorProfile Doctor?
+  appointments  Appointment[]
+
+  @@index([role])
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  doctors Doctor[]
+
+  @@index([name])
+}
+
+model Doctor {
+  id             String   @id @default(cuid())
+  departmentId   String
+  name           String
+  specialization String?
+  experience     String?
+  qualification  String?
+  imageUrl       String?
+  userId         String?  @unique
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  department     Department     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user           User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  availabilities Availability[]
+  appointments   Appointment[]
+
+  @@index([departmentId])
+  @@index([active])
+}
+
+model Availability {
+  id          String   @id @default(cuid())
+  doctorId    String
+  date        DateTime @db.Date
+  startTime   String
+  endTime     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, date])
+}
+
+model Appointment {
+  id            String              @id @default(cuid())
+  doctorId      String
+  userId        String
+  scheduledAt   DateTime
+  date          DateTime            @db.Date
+  tokenNumber   Int
+  status        AppointmentStatus   @default(WAITING)
+  paymentRef    String?
+  notes         String?
+  /// Set when the doctor's availability no longer includes this slot (patient should be informed).
+  scheduleNotice String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, date, tokenNumber])
+  @@unique([doctorId, scheduledAt])
+  @@index([doctorId, date, status])
+  @@index([userId, scheduledAt])
+}

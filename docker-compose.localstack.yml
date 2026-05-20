@@ -1,0 +1,12 @@
+# Local S3-compatible API for doctor photo uploads.
+# Run: docker compose -f docker-compose.localstack.yml up -d
+# Then copy S3_* lines from backend/.env.example into backend/.env
+
+services:
+  localstack:
+    image: localstack/localstack:3.5
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=0

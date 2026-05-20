@@ -1,0 +1,184 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap");
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --radius-card: 0.75rem;
+}
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  /* Consistent pointer cursor for interactive controls */
+  a[href],
+  summary,
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  input[type="button"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="reset"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  input[type="button"]:disabled,
+  input[type="submit"]:disabled,
+  input[type="reset"]:disabled {
+    @apply cursor-not-allowed;
+  }
+
+  select {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  select option {
+    font-size: 0.875rem;
+    line-height: 1.2rem;
+  }
+
+  input[type="text"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
+  input[type="search"]:focus,
+  input[type="tel"]:focus,
+  input[type="url"]:focus,
+  input[type="number"]:focus,
+  input[type="date"]:focus,
+  input[type="time"]:focus,
+  input[type="file"]:focus,
+  textarea:focus,
+  select:focus,
+  [role="combobox"]:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  input[type="text"]:focus-visible,
+  input[type="email"]:focus-visible,
+  input[type="password"]:focus-visible,
+  input[type="search"]:focus-visible,
+  input[type="tel"]:focus-visible,
+  input[type="url"]:focus-visible,
+  input[type="number"]:focus-visible,
+  input[type="date"]:focus-visible,
+  input[type="time"]:focus-visible,
+  input[type="file"]:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role="combobox"]:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+
+  input,
+  textarea,
+  select,
+  [role="combobox"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [role="combobox"]):focus,
+  :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select, [role="combobox"]):focus-visible {
+    outline: 2px solid rgb(153 246 228) !important;
+    outline-offset: 1px;
+    box-shadow: 0 0 0 1px rgb(153 246 228 / 0.65) !important;
+    border-width: 1px !important;
+    border-color: rgb(45 212 191) !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+}
+
+@layer components {
+  .rdp {
+    --rdp-accent-color: #0d9488;
+    --rdp-background-color: rgba(13, 148, 136, 0.12);
+    margin: 0;
+  }
+
+  .rdp-chevron {
+    fill: #0d9488 !important;
+  }
+
+  .rdp-button_reset:focus-visible,
+  .rdp-day_button:focus-visible {
+    outline: 2px solid #0d9488 !important;
+    outline-offset: 2px;
+  }
+
+  .rdp-day_selected,
+  .rdp-day_selected:focus-visible,
+  .rdp-day_selected:hover,
+  .rdp-selected .rdp-day_button,
+  .rdp-selected .rdp-day_button:hover,
+  .rdp-selected .rdp-day_button:focus-visible {
+    background-color: #0d9488 !important;
+    color: #ffffff !important;
+    border-color: #0f766e !important;
+    box-shadow: none !important;
+  }
+
+  .rdp-day_today:not(.rdp-day_selected) {
+    color: #0f766e !important;
+    font-weight: 700;
+  }
+
+  .rdp-day:hover:not(.rdp-day_selected) {
+    background-color: rgba(13, 148, 136, 0.12) !important;
+  }
+
+  .dark .rdp-day_selected,
+  .dark .rdp-day_selected:focus-visible,
+  .dark .rdp-day_selected:hover,
+  .dark .rdp-selected .rdp-day_button,
+  .dark .rdp-selected .rdp-day_button:hover,
+  .dark .rdp-selected .rdp-day_button:focus-visible {
+    background-color: #14b8a6 !important;
+    color: rgb(15 23 42) !important;
+    border-color: #0d9488 !important;
+  }
+
+  .dark .rdp-chevron {
+    fill: #14b8a6 !important;
+  }
+
+  .dark .rdp-day_today:not(.rdp-day_selected) {
+    color: #2dd4bf !important;
+  }
+
+  .MuiPickersLayout-root {
+    background: transparent !important;
+    color: rgb(15 23 42) !important;
+  }
+
+  .dark .MuiPickersLayout-root {
+    color: rgb(226 232 240) !important;
+  }
+
+  /* MobileTimePicker field: remove inner underline / chrome */
+  .MuiPickersInput-root,
+  .MuiPickersInputBase-root {
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .MuiPickersInput-root::before,
+  .MuiPickersInput-root::after,
+  .MuiPickersInputBase-root::before,
+  .MuiPickersInputBase-root::after {
+    display: none !important;
+  }
+
+  .MuiPickersInputBase-activeBar {
+    display: none !important;
+  }
+}
