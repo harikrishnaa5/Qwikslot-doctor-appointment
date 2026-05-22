@@ -9,11 +9,12 @@ import { adminLoginRedirect } from "../lib/adminNav";
 
 type LoginPageProps = {
   /** Staff portal sign-in (same auth + success toast as patient login). */
-  variant?: "patient" | "admin";
+  variant?: "patient" | "admin" | "doctor";
 };
 
 export function LoginPage({ variant = "patient" }: LoginPageProps) {
   const isAdminPortal = variant === "admin";
+  const isDoctorPortal = variant === "doctor";
   const dispatch = useAppDispatch();
   const user = useAppSelector((s) => s.auth.user);
   const loading = useAppSelector((s) => s.auth.loading);
@@ -31,9 +32,11 @@ export function LoginPage({ variant = "patient" }: LoginPageProps) {
     <AuthLayout
       title="Sign in"
       subtitle={
-        isAdminPortal
-          ? "Sign in to manage departments, doctors, availability, and the live queue."
-          : "See your upcoming visits, your spot in line, and past appointments — all in one place."
+        isDoctorPortal
+          ? "Sign in to view your daily schedule and update patient visit status."
+          : isAdminPortal
+            ? "Sign in to manage departments, doctors, availability, and the live queue."
+            : "See your upcoming visits, your spot in line, and past appointments — all in one place."
       }
     >
       <Card className="shadow-md dark:shadow-none">

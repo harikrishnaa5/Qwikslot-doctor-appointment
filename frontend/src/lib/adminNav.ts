@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { DOCTOR_HOME } from "./doctorNav";
 import { Building2, CalendarClock, ClipboardList, ListOrdered, Stethoscope, Shield, Users } from "lucide-react";
 
 export type AdminTab = "dept" | "docs" | "avail" | "appt" | "queue" | "patients" | "staff";
@@ -99,5 +100,6 @@ export const ADMIN_HOME = adminPath("dept");
 
 export function adminLoginRedirect(role: string | undefined, from?: string): string {
   if (isAdminRole(role)) return ADMIN_HOME;
+  if (role === "DOCTOR") return DOCTOR_HOME;
   return from ?? "/";
 }

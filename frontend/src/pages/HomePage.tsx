@@ -123,7 +123,7 @@ export function HomePage() {
             variant="ghost"
             className="mt-6 gap-2 border border-white/20 bg-white/10 text-white hover:bg-white/15 dark:border-white/20"
           >
-            Explore specialties
+            Book now
             <ChevronRight className="h-4 w-4" aria-hidden />
           </ButtonLink>
         </div>

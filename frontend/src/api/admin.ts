@@ -70,6 +70,8 @@ export async function adminUploadDoctorPhoto(file: File) {
 export async function adminCreateDoctor(body: {
   departmentId: string;
   name: string;
+  email: string;
+  password: string;
   specialization?: string;
   experience?: string;
   qualification?: string;
@@ -86,6 +88,8 @@ export async function adminUpdateDoctor(
   body: Partial<{
     departmentId: string;
     name: string;
+    email: string;
+    password: string;
     specialization: string;
     experience: string;
     qualification: string;

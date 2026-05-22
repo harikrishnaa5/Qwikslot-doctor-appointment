@@ -1,4 +1,12 @@
-export type Role = "USER" | "ADMIN" | "SUPER_ADMIN";
+export type Role = "USER" | "DOCTOR" | "ADMIN" | "SUPER_ADMIN";
+
+export type AppointmentStatus =
+  | "WAITING"
+  | "CHECKED_IN"
+  | "IN_PROGRESS"
+  | "SKIPPED"
+  | "COMPLETED"
+  | "CANCELLED";
 
 export type User = {
   id: string;

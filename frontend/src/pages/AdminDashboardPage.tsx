@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { MoreVertical, Plus } from "lucide-react";
+import { MoreVertical } from "lucide-react";
 import { toast } from "../lib/toast";
 import {
   adminCreateDepartment,
@@ -35,7 +35,22 @@ import {
   localTodayStr,
   parseLocalDateTime,
 } from "../lib/dates";
-import { Button, Card, ConfirmModal, PageHeader, Skeleton, TablePagination } from "../components/ui";
+import {
+  ActivateButton,
+  Button,
+  Card,
+  ConfirmModal,
+  CreateButton,
+  DeactivateButton,
+  DeleteButton,
+  EditButton,
+  ModalBackdrop,
+  ModalOverlay,
+  ModalPanel,
+  PageHeader,
+  Skeleton,
+  TablePagination,
+} from "../components/ui";
 import { DoctorAvatar } from "../components/DoctorAvatar";
 import { useAppSelector } from "../store/hooks";
 import { CalendarDatePicker, ClockTimePicker } from "../components/date-time";
@@ -52,7 +67,8 @@ import {
 
 const MAX_PHOTO_FILE_BYTES = 5 * 1024 * 1024;
 const TABLE_PAGE_SIZE = 15;
-const OPTIONS_PAGE_SIZE = 500;
+/** Must match backend `paginationQuerySchema` max (100). */
+const OPTIONS_PAGE_SIZE = 100;
 
 type Tab = AdminTab;
 type StaffModalState = { mode: "create" } | { mode: "edit"; user: { id: string; name: string; email: string; role: string } };
@@ -83,6 +99,8 @@ export function AdminDashboardPage() {
     }
   }, [section, resolvedTab, allowedTabs, tab, navigate]);
 
+  const [docModal, setDocModal] = useState<DocModalState | null>(null);
+
   const [deptPage, setDeptPage] = useState(1);
   const deptTableQ = useQuery({
     queryKey: ["admin-departments", "table", deptPage],
@@ -98,7 +116,8 @@ export function AdminDashboardPage() {
       const p = new URLSearchParams({ page: "1", pageSize: String(OPTIONS_PAGE_SIZE) });
       return (await adminListDepartments(p)).departments;
     },
-    enabled: tab === "docs" || tab === "avail",
+    enabled: tab === "docs" || tab === "avail" || docModal !== null,
+    staleTime: 60_000,
   });
 
   const [docPage, setDocPage] = useState(1);
@@ -161,13 +180,14 @@ export function AdminDashboardPage() {
   const [deptModal, setDeptModal] = useState<DeptModalState | null>(null);
 
   const [docName, setDocName] = useState("");
+  const [docEmail, setDocEmail] = useState("");
+  const [docPassword, setDocPassword] = useState("");
   const [docDeptId, setDocDeptId] = useState("");
   const [docExperience, setDocExperience] = useState("");
   const [docQualification, setDocQualification] = useState("");
   const [docSpecialization, setDocSpecialization] = useState("");
   const [docImageUrl, setDocImageUrl] = useState("");
   const [editingDoc, setEditingDoc] = useState<AdminDoctor | null>(null);
-  const [docModal, setDocModal] = useState<DocModalState | null>(null);
 
   const [docId, setDocId] = useState("");
   const [availModalOpen, setAvailModalOpen] = useState(false);
@@ -222,6 +242,8 @@ export function AdminDashboardPage() {
   useEffect(() => {
     if (editingDoc) {
       setDocName(editingDoc.name);
+      setDocEmail(editingDoc.user?.email ?? "");
+      setDocPassword("");
       setDocDeptId(editingDoc.departmentId);
       setDocExperience(editingDoc.experience ?? "");
       setDocQualification(editingDoc.qualification ?? "");
@@ -229,6 +251,8 @@ export function AdminDashboardPage() {
       setDocImageUrl(editingDoc.imageUrl ?? "");
     } else if (!editingDoc && tab === "docs") {
       setDocName("");
+      setDocEmail("");
+      setDocPassword("");
       setDocDeptId("");
       setDocExperience("");
       setDocQualification("");
@@ -339,13 +363,19 @@ export function AdminDashboardPage() {
         qualification: docQualification || undefined,
       };
       if (vars.isEdit && editingDoc) {
-        return adminUpdateDoctor(editingDoc.id, {
+        const patch: Parameters<typeof adminUpdateDoctor>[1] = {
           ...base,
           imageUrl: docImageUrl.trim() ? docImageUrl : "",
-        });
+        };
+        const email = docEmail.trim();
+        if (email) patch.email = email;
+        if (docPassword.trim()) patch.password = docPassword;
+        return adminUpdateDoctor(editingDoc.id, patch);
       }
       return adminCreateDoctor({
         ...base,
+        email: docEmail.trim(),
+        password: docPassword,
         imageUrl: docImageUrl.trim() || undefined,
       });
     },
@@ -356,6 +386,8 @@ export function AdminDashboardPage() {
         setEditingDoc(null);
       } else {
         setDocName("");
+        setDocEmail("");
+        setDocPassword("");
         setDocDeptId("");
         setDocExperience("");
         setDocQualification("");
@@ -558,6 +590,7 @@ export function AdminDashboardPage() {
     value: d.id,
     label: d.name,
   }));
+  const departmentOptionsLoading = deptOptionsQ.isLoading || deptOptionsQ.isFetching;
   const availRows = availListQ.data?.availabilities ?? [];
   const canManageUsers = role === "SUPER_ADMIN";
 
@@ -571,7 +604,7 @@ export function AdminDashboardPage() {
             <p className="text-sm text-slate-600 dark:text-slate-400">
               Departments ({deptTableQ.data?.total ?? "…"} total).
             </p>
-            <Button
+            <CreateButton
               onClick={() => {
                 setNewDeptName("");
                 setNewDeptDesc("");
@@ -579,7 +612,7 @@ export function AdminDashboardPage() {
               }}
             >
               Create department
-            </Button>
+            </CreateButton>
           </div>
 
           <Card className="overflow-hidden p-0">
@@ -610,24 +643,16 @@ export function AdminDashboardPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              className="min-h-9 px-3 py-1.5 text-xs"
+                            <EditButton
                               onClick={() => {
                                 setEditingDept(d);
                                 setDeptModal({ mode: "edit" });
                               }}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="danger"
-                              className="min-h-9 px-3 py-1.5 text-xs"
+                            />
+                            <DeleteButton
                               onClick={() => setConfirmDialog({ kind: "delete-dept", dept: d })}
                               disabled={deleteDept.isPending}
-                            >
-                              Delete
-                            </Button>
+                            />
                           </div>
                         </td>
                       </tr>
@@ -661,10 +686,12 @@ export function AdminDashboardPage() {
             <p className="text-sm text-slate-600 dark:text-slate-400">
               Doctors ({docTableQ.data?.total ?? "…"} total).
             </p>
-            <Button
+            <CreateButton
               onClick={() => {
                 setEditingDoc(null);
                 setDocName("");
+                setDocEmail("");
+                setDocPassword("");
                 setDocDeptId("");
                 setDocExperience("");
                 setDocQualification("");
@@ -674,7 +701,7 @@ export function AdminDashboardPage() {
               }}
             >
               Create doctor
-            </Button>
+            </CreateButton>
           </div>
 
           <Card className="overflow-hidden p-0">
@@ -722,33 +749,22 @@ export function AdminDashboardPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              className="min-h-9 px-3 py-1.5 text-xs"
+                            <EditButton
                               onClick={() => {
                                 setEditingDoc(d);
                                 setDocModal({ mode: "edit", doctor: d });
                               }}
-                            >
-                              Edit
-                            </Button>
+                            />
                             {d.active ? (
-                              <Button
-                                variant="danger"
-                                className="min-h-9 px-3 py-1.5 text-xs"
+                              <DeactivateButton
                                 onClick={() => setConfirmDialog({ kind: "deactivate", doctor: d })}
                                 disabled={deactivateDoc.isPending}
-                              >
-                                Deactivate
-                              </Button>
+                              />
                             ) : (
-                              <Button
-                                className="min-h-9 px-3 py-1.5 text-xs"
+                              <ActivateButton
                                 onClick={() => setConfirmDialog({ kind: "activate", doctor: d })}
                                 disabled={activateDoc.isPending}
-                              >
-                                Activate
-                              </Button>
+                              />
                             )}
                           </div>
                         </td>
@@ -784,9 +800,9 @@ export function AdminDashboardPage() {
               <label className="mb-2 block text-sm">Doctor</label>
               <DropdownSelect value={docId} onChange={setDocId} options={doctorOptions} />
             </div>
-            <Button
+            <CreateButton
               type="button"
-              className="inline-flex shrink-0 items-center gap-2"
+              className="shrink-0"
               onClick={() => {
                 setAvailEditingId(null);
                 setModalAvailDocId("");
@@ -797,9 +813,8 @@ export function AdminDashboardPage() {
                 setAvailModalOpen(true);
               }}
             >
-              Create
-              <Plus className="h-4 w-4 shrink-0" aria-hidden />
-            </Button>
+              Create availability
+            </CreateButton>
           </div>
 
           <Card className="overflow-hidden p-0">
@@ -855,9 +870,7 @@ export function AdminDashboardPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                className="min-h-9 px-3 py-1.5 text-xs"
+                              <EditButton
                                 type="button"
                                 onClick={() => {
                                   setAvailEditingId(row.id);
@@ -867,18 +880,12 @@ export function AdminDashboardPage() {
                                   setEndT(row.endTime);
                                   setAvailModalOpen(true);
                                 }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="danger"
-                                className="min-h-9 px-3 py-1.5 text-xs"
+                              />
+                              <DeleteButton
                                 type="button"
                                 onClick={() => setAvailDeleteTarget(row)}
                                 disabled={deleteAvail.isPending}
-                              >
-                                Delete
-                              </Button>
+                              />
                             </div>
                           </td>
                         </tr>
@@ -1122,24 +1129,16 @@ export function AdminDashboardPage() {
                         {canManageUsers && (
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                className="min-h-9 px-3 py-1.5 text-xs"
+                              <EditButton
                                 onClick={() => {
                                   setPatientEditTarget({ id: u.id, name: u.name, email: u.email });
                                   setPatientEditName(u.name);
                                 }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="danger"
-                                className="min-h-9 px-3 py-1.5 text-xs"
+                              />
+                              <DeleteButton
                                 onClick={() => setPatientDeleteTarget({ id: u.id, name: u.name })}
                                 disabled={deleteStaffUser.isPending}
-                              >
-                                Delete
-                              </Button>
+                              />
                             </div>
                           </td>
                         )}
@@ -1221,11 +1220,8 @@ export function AdminDashboardPage() {
 
       {tab === "staff" && role === "SUPER_ADMIN" && (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-2">
-            {/* <p className="text-sm text-slate-600 dark:text-slate-400">
-              Clinic administrators ({staffQ.data?.total ?? "…"}). Super admins are not listed here.
-            </p> */}
-            <Button
+          <div className="flex items-center justify-end gap-2">
+            <CreateButton
               onClick={() => {
                 resetStaffForm();
                 setStaffRole("ADMIN");
@@ -1233,7 +1229,7 @@ export function AdminDashboardPage() {
               }}
             >
               Create admin
-            </Button>
+            </CreateButton>
           </div>
 
           <Card className="overflow-hidden p-0">
@@ -1266,26 +1262,18 @@ export function AdminDashboardPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              className="min-h-9 px-3 py-1.5 text-xs"
+                            <EditButton
                               onClick={() => {
                                 setStaffName(u.name);
                                 setStaffEmail(u.email);
                                 setStaffRole((u.role === "ADMIN" ? "ADMIN" : "USER") as "ADMIN" | "USER");
                                 setStaffModal({ mode: "edit", user: { id: u.id, name: u.name, email: u.email, role: u.role } });
                               }}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="danger"
-                              className="min-h-9 px-3 py-1.5 text-xs"
+                            />
+                            <DeleteButton
                               onClick={() => setStaffDeleteTarget({ id: u.id, name: u.name })}
                               disabled={deleteStaffUser.isPending}
-                            >
-                              Delete
-                            </Button>
+                            />
                           </div>
                         </td>
                       </tr>
@@ -1441,14 +1429,20 @@ export function AdminDashboardPage() {
         <DoctorModal
           title="Create doctor"
           name={docName}
+          email={docEmail}
+          password={docPassword}
+          accountMode="create"
           departmentId={docDeptId}
           specialization={docSpecialization}
           experience={docExperience}
           qualification={docQualification}
           imageUrl={docImageUrl}
           departmentOptions={departmentOptions}
+          departmentOptionsLoading={departmentOptionsLoading}
           isSaving={saveDoc.isPending}
           onNameChange={setDocName}
+          onEmailChange={setDocEmail}
+          onPasswordChange={setDocPassword}
           onDepartmentChange={setDocDeptId}
           onSpecializationChange={setDocSpecialization}
           onExperienceChange={setDocExperience}
@@ -1465,14 +1459,21 @@ export function AdminDashboardPage() {
         <DoctorModal
           title="Edit doctor"
           name={docName}
+          email={docEmail}
+          password={docPassword}
+          accountMode="edit"
+          hasLoginAccount={Boolean(editingDoc.user?.email)}
           departmentId={docDeptId}
           specialization={docSpecialization}
           experience={docExperience}
           qualification={docQualification}
           imageUrl={docImageUrl}
           departmentOptions={departmentOptions}
+          departmentOptionsLoading={departmentOptionsLoading}
           isSaving={saveDoc.isPending}
           onNameChange={setDocName}
+          onEmailChange={setDocEmail}
+          onPasswordChange={setDocPassword}
           onDepartmentChange={setDocDeptId}
           onSpecializationChange={setDocSpecialization}
           onExperienceChange={setDocExperience}
@@ -1628,67 +1629,69 @@ function AdminStaffModal({
     mode === "create" ? Boolean(email.trim() && name.trim() && password.trim()) : Boolean(name.trim());
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          {mode === "create" ? "Create admin" : "Edit admin"}
-        </h3>
+    <ModalOverlay>
+      <ModalBackdrop />
+      <ModalPanel
+        title={mode === "create" ? "Create admin" : "Edit admin"}
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" form="admin-staff-form" disabled={!canSubmit || isSaving}>
+              {mode === "create" ? "Create admin" : "Save changes"}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="admin-staff-form"
           autoComplete="off"
           onSubmit={(e) => {
             e.preventDefault();
             onSubmit();
           }}
         >
-        <input
-          className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-          placeholder="Full name"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-        />
-        <input
-          className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:opacity-60"
-          placeholder="Email"
-          type="email"
-          autoComplete="off"
-          name="staff-email-no-autofill"
-          value={email}
-          onChange={(e) => onEmailChange(e.target.value)}
-          disabled={mode === "edit"}
-        />
-        {mode === "create" && (
           <input
             className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            placeholder="Temporary password"
-            type="password"
-            autoComplete="new-password"
-            name="staff-password-no-autofill"
-            value={password}
-            onChange={(e) => onPasswordChange(e.target.value)}
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
           />
-        )}
-        <label className="mb-2 block text-sm">Role</label>
-        <DropdownSelect
-          className="mb-4"
-          value={roleValue}
-          onChange={onRoleChange}
-          options={[
-            { value: "ADMIN", label: "Clinic admin" },
-            { value: "USER", label: "Patient" },
-          ]}
-        />
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!canSubmit || isSaving}>
-            {mode === "create" ? "Create admin" : "Save changes"}
-          </Button>
-        </div>
+          <input
+            className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:opacity-60"
+            placeholder="Email"
+            type="email"
+            autoComplete="off"
+            name="staff-email-no-autofill"
+            value={email}
+            onChange={(e) => onEmailChange(e.target.value)}
+            disabled={mode === "edit"}
+          />
+          {mode === "create" && (
+            <input
+              className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              placeholder="Temporary password"
+              type="password"
+              autoComplete="new-password"
+              name="staff-password-no-autofill"
+              value={password}
+              onChange={(e) => onPasswordChange(e.target.value)}
+            />
+          )}
+          <label className="mb-2 block text-sm">Role</label>
+          <DropdownSelect
+            className="mb-2"
+            value={roleValue}
+            onChange={onRoleChange}
+            options={[
+              { value: "ADMIN", label: "Clinic admin" },
+              { value: "USER", label: "Patient" },
+            ]}
+          />
         </form>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalOverlay>
   );
 }
 
@@ -1710,11 +1713,23 @@ function EditUserNameModal({
   onSubmit: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
+    <ModalOverlay>
+      <ModalBackdrop />
+      <ModalPanel
+        title={title}
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" form="edit-user-name-form" disabled={!name.trim() || isSaving}>
+              Save changes
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="edit-user-name-form"
           autoComplete="off"
           onSubmit={(e) => {
             e.preventDefault();
@@ -1728,22 +1743,14 @@ function EditUserNameModal({
             disabled
           />
           <input
-            className="mb-4 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
             placeholder="Full name"
           />
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim() || isSaving}>
-              Save changes
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalOverlay>
   );
 }
 
@@ -1784,13 +1791,23 @@ function AvailabilityCreateModal({
   const canSubmit = isEdit ? Boolean(lockedSummary && availDate) : Boolean(doctorId && availDate);
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
-      <div className="relative max-h-[min(90vh,640px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">
-          {isEdit ? "Edit availability" : "Create availability"}
-        </h3>
+    <ModalOverlay>
+      <ModalBackdrop />
+      <ModalPanel
+        title={isEdit ? "Edit availability" : "Create availability"}
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" form="availability-form" disabled={!canSubmit || isSaving}>
+              {isEdit ? "Save changes" : "Create availability"}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="availability-form"
           className="flex flex-col gap-3"
           onSubmit={(e) => {
             e.preventDefault();
@@ -1840,17 +1857,9 @@ function AvailabilityCreateModal({
               notBeforeTime={startT}
             />
           </div>
-          <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!canSubmit || isSaving}>
-              {isEdit ? "Save changes" : "Create availability"}
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalOverlay>
   );
 }
 
@@ -1876,11 +1885,23 @@ function DepartmentModal({
   submitLabel: string;
 }) {
   return (
-    <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
-      <div className="relative w-full max-w-lg rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
+    <ModalOverlay>
+      <ModalBackdrop />
+      <ModalPanel
+        title={title}
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" form="department-form" disabled={!name.trim() || isSaving}>
+              {submitLabel}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="department-form"
           onSubmit={(e) => {
             e.preventDefault();
             onSubmit();
@@ -1894,36 +1915,35 @@ function DepartmentModal({
           />
           <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
           <textarea
-            className="mb-4 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            className="mb-2 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             rows={3}
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
           />
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim() || isSaving}>
-              {submitLabel}
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalOverlay>
   );
 }
 
 function DoctorModal({
   title,
   name,
+  email = "",
+  password = "",
+  accountMode = "none",
+  hasLoginAccount = true,
   departmentId,
   specialization,
   experience,
   qualification,
   imageUrl,
   departmentOptions,
+  departmentOptionsLoading = false,
   isSaving,
   onNameChange,
+  onEmailChange,
+  onPasswordChange,
   onDepartmentChange,
   onSpecializationChange,
   onExperienceChange,
@@ -1936,14 +1956,22 @@ function DoctorModal({
 }: {
   title: string;
   name: string;
+  email?: string;
+  password?: string;
+  accountMode?: "none" | "create" | "edit";
+  /** When editing: false if doctor has no portal login yet */
+  hasLoginAccount?: boolean;
   departmentId: string;
   specialization: string;
   experience: string;
   qualification: string;
   imageUrl: string;
   departmentOptions: { value: string; label: string }[];
+  departmentOptionsLoading?: boolean;
   isSaving: boolean;
   onNameChange: (v: string) => void;
+  onEmailChange?: (v: string) => void;
+  onPasswordChange?: (v: string) => void;
   onDepartmentChange: (v: string) => void;
   onSpecializationChange: (v: string) => void;
   onExperienceChange: (v: string) => void;
@@ -1954,12 +1982,35 @@ function DoctorModal({
   onSubmit: () => void;
   submitLabel: string;
 }) {
+  const showAccountFields = accountMode === "create" || accountMode === "edit";
+  const canSubmit =
+    Boolean(name.trim() && departmentId) &&
+    !isSaving &&
+    (accountMode === "none" ||
+      (accountMode === "create" && email.trim() && password.length >= 8) ||
+      (accountMode === "edit" &&
+        email.trim() &&
+        (hasLoginAccount ? !password || password.length >= 8 : password.length >= 8)));
+
   return (
-    <div className="fixed inset-0 z-[110] flex items-end justify-center p-4 sm:items-center">
-      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" aria-hidden />
-      <div className="relative w-full max-w-2xl rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-slate-50">{title}</h3>
+    <ModalOverlay>
+      <ModalBackdrop />
+      <ModalPanel
+        title={title}
+        maxWidth="max-w-2xl"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" form="doctor-form" disabled={!canSubmit}>
+              {submitLabel}
+            </Button>
+          </div>
+        }
+      >
         <form
+          id="doctor-form"
           onSubmit={(e) => {
             e.preventDefault();
             onSubmit();
@@ -1971,8 +2022,51 @@ function DoctorModal({
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
           />
+          {showAccountFields && (
+            <>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Portal login
+              </p>
+              {!hasLoginAccount && accountMode === "edit" ? (
+                <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">
+                  No login yet — set email and password to enable doctor sign-in.
+                </p>
+              ) : null}
+              <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Login email</label>
+              <input
+                type="email"
+                autoComplete="off"
+                className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={email}
+                onChange={(e) => onEmailChange?.(e.target.value)}
+              />
+              <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                {accountMode === "edit" ? "New password (optional)" : "Password"}
+              </label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                placeholder={accountMode === "edit" ? "" : undefined}
+                className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={password}
+                onChange={(e) => onPasswordChange?.(e.target.value)}
+              />
+            </>
+          )}
           <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Department</label>
-          <DropdownSelect className="mb-3" value={departmentId} onChange={onDepartmentChange} options={departmentOptions} />
+          <DropdownSelect
+            className="mb-3"
+            value={departmentId}
+            onChange={onDepartmentChange}
+            options={departmentOptions}
+            placeholder={departmentOptionsLoading ? "Loading departments…" : "Select department"}
+            clearable={!departmentOptionsLoading}
+          />
+          {!departmentOptionsLoading && departmentOptions.length === 0 ? (
+            <p className="mb-3 text-xs text-amber-700 dark:text-amber-300">
+              No departments found. Create a department first.
+            </p>
+          ) : null}
           <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Experience</label>
           <input
             className="mb-3 w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
@@ -2013,23 +2107,15 @@ function DoctorModal({
             }}
           />
           {imageUrl && (
-            <div className="mb-4 flex items-center gap-3">
+            <div className="mb-2 flex items-center gap-3">
               <DoctorAvatar name={name || "Preview"} imageUrl={imageUrl} size="md" />
               <Button variant="ghost" className="min-h-10 text-xs" onClick={() => onImageUrlChange("")}>
                 Clear photo
               </Button>
             </div>
           )}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim() || !departmentId || isSaving}>
-              {submitLabel}
-            </Button>
-          </div>
         </form>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalOverlay>
   );
 }

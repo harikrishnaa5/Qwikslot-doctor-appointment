@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { CalendarDays, Home, LayoutGrid, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { ConfirmModal } from "./ui";
 import { Logo } from "./Logo";
+import { ScrollToTopButton } from "./ScrollToTopButton";
 import {
   ADMIN_HOME,
   getAdminMobileBottomItems,
@@ -13,6 +14,7 @@ import {
   isAdminRole,
   type AdminNavItem,
 } from "../lib/adminNav";
+import { DOCTOR_HOME, DOCTOR_NAV_ITEMS, isDoctorRole, type DoctorNavItem } from "../lib/doctorNav";
 
 type PatientNavItem = { to: string; label: string; icon: typeof Home; end?: boolean };
 
@@ -27,7 +29,7 @@ function NavItemLink({
   layout,
   onNavigate,
 }: {
-  item: AdminNavItem | PatientNavItem;
+  item: AdminNavItem | PatientNavItem | DoctorNavItem;
   layout: "bottom" | "drawer";
   onNavigate?: () => void;
 }) {
@@ -76,9 +78,13 @@ export function AppShell({
   const loc = useLocation();
   const nav = useNavigate();
   const hideNav =
-    loc.pathname === "/login" || loc.pathname === "/register" || loc.pathname === "/admin/login";
+    loc.pathname === "/login" ||
+    loc.pathname === "/register" ||
+    loc.pathname === "/admin/login" ||
+    loc.pathname === "/doctor/login";
   const adminView = isAdminRole(role);
-  const logoTo = adminView ? ADMIN_HOME : "/";
+  const doctorView = isDoctorRole(role);
+  const logoTo = adminView ? ADMIN_HOME : doctorView ? DOCTOR_HOME : "/";
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
@@ -88,6 +94,10 @@ export function AppShell({
 
   useEffect(() => {
     setMenuOpen(false);
+  }, [loc.pathname]);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
   }, [loc.pathname]);
 
   useEffect(() => {
@@ -121,7 +131,7 @@ export function AppShell({
 
   const confirmLogout = () => {
     onLogout();
-    nav(isAdminRole(role) ? "/admin/login" : "/login");
+    nav(isAdminRole(role) ? "/admin/login" : isDoctorRole(role) ? "/doctor/login" : "/login");
   };
 
   const logoutButton = (
@@ -150,9 +160,36 @@ export function AppShell({
     </div>
   );
 
+  const primaryNavDesktop = !hideNav ? (
+    <nav className="hidden pt-2 md:block" aria-label="Primary">
+      <ul className="flex flex-wrap justify-start gap-2">
+        {adminView ? (
+          adminDesktopItems.map((item) => (
+            <li key={`desktop-${item.to}`} className="flex-none">
+              <NavItemLink item={item} layout="bottom" />
+            </li>
+          ))
+        ) : doctorView ? (
+          DOCTOR_NAV_ITEMS.map((item) => (
+            <li key={`desktop-${item.to}`} className="flex-none">
+              <NavItemLink item={item} layout="bottom" />
+            </li>
+          ))
+        ) : (
+          patientItems.map((item) => (
+            <li key={item.to} className="flex-none">
+              <NavItemLink item={item} layout="bottom" />
+            </li>
+          ))
+        )}
+      </ul>
+    </nav>
+  ) : null;
+
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col px-4 pb-24 pt-4 sm:max-w-3xl md:max-w-5xl md:px-5 md:pb-8">
-      <header className="relative z-50 mb-4 border-b border-slate-200/80 pb-3 dark:border-slate-800/80">
+    <div className="mx-auto flex min-h-dvh max-w-lg flex-col px-4 pb-24 sm:max-w-3xl md:max-w-5xl md:px-5 md:pb-8">
+      <div className="sticky top-0 z-50 -mx-4 bg-white/95 px-4 pt-4 backdrop-blur-md supports-[backdrop-filter]:bg-white/90 sm:-mx-5 sm:px-5 dark:bg-slate-950/95 dark:supports-[backdrop-filter]:bg-slate-950/90 md:-mx-5">
+        <header className="relative mb-0 pb-3">
         {/* Mobile: theme (left) · logo (center) · menu or auth (right) */}
         <div className="flex min-h-11 items-center gap-2 md:hidden">
           {themeButton}
@@ -239,39 +276,40 @@ export function AppShell({
             </aside>
           </>
         )}
-      </header>
+        </header>
+        {primaryNavDesktop}
+      </div>
 
       {!hideNav && (
         <nav
-          className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95 md:relative md:mb-5 md:border-0 md:bg-transparent md:pb-0 md:backdrop-blur-0"
+          className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95 md:hidden"
           aria-label="Primary"
         >
-          <ul className="mx-auto flex max-w-lg justify-around gap-1 px-2 py-2 sm:max-w-3xl md:mx-0 md:max-w-none md:flex-wrap md:justify-start md:gap-2 md:px-0">
-            {adminView ? (
-              <>
-                {adminMobileBottomItems.map((item) => (
-                  <li key={item.to} className="flex-1 md:hidden">
+          <ul className="mx-auto flex max-w-lg justify-around gap-1 px-2 py-2 sm:max-w-3xl">
+            {adminView
+              ? adminMobileBottomItems.map((item) => (
+                  <li key={item.to} className="flex-1">
                     <NavItemLink item={item} layout="bottom" />
                   </li>
-                ))}
-                {adminDesktopItems.map((item) => (
-                  <li key={`desktop-${item.to}`} className="hidden md:flex md:flex-none">
-                    <NavItemLink item={item} layout="bottom" />
-                  </li>
-                ))}
-              </>
-            ) : (
-              patientItems.map((item) => (
-                <li key={item.to} className="flex-1 md:flex-none">
-                  <NavItemLink item={item} layout="bottom" />
-                </li>
-              ))
-            )}
+                ))
+              : doctorView
+                ? DOCTOR_NAV_ITEMS.map((item) => (
+                    <li key={item.to} className="flex-1">
+                      <NavItemLink item={item} layout="bottom" />
+                    </li>
+                  ))
+                : patientItems.map((item) => (
+                    <li key={item.to} className="flex-1">
+                      <NavItemLink item={item} layout="bottom" />
+                    </li>
+                  ))}
           </ul>
         </nav>
       )}
 
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 pt-4">{children}</main>
+
+      <ScrollToTopButton aboveBottomNav={!hideNav} />
 
       <ConfirmModal
         open={logoutConfirmOpen}

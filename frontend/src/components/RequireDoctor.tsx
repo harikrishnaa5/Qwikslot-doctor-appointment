@@ -1,12 +1,11 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAppSelector } from "../store/hooks";
-import { ADMIN_HOME, isAdminRole } from "../lib/adminNav";
 import { DOCTOR_HOME, isDoctorRole } from "../lib/doctorNav";
+import { ADMIN_HOME, isAdminRole } from "../lib/adminNav";
 
-/** Blocks staff from patient-facing routes (home, care, bookings, etc.). */
-export function RequirePatient() {
+export function RequireDoctor() {
   const role = useAppSelector((s) => s.auth.user?.role);
   if (isAdminRole(role)) return <Navigate to={ADMIN_HOME} replace />;
-  if (isDoctorRole(role)) return <Navigate to={DOCTOR_HOME} replace />;
+  if (!isDoctorRole(role)) return <Navigate to="/" replace />;
   return <Outlet />;
 }

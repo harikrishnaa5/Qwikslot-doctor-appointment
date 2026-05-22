@@ -13,6 +13,7 @@ import doctorsRoutes from "./modules/doctors/doctors.routes.js";
 import appointmentsRoutes from "./modules/appointments/appointments.routes.js";
 import paymentsRoutes from "./modules/payments/payments.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
+import doctorRoutes from "./modules/doctor/doctor.routes.js";
 import { queuePublicRoutes } from "./modules/queue/queue.routes.js";
 
 export async function buildApp() {
@@ -80,6 +81,7 @@ export async function buildApp() {
   await app.register(appointmentsRoutes, { prefix: "/api/v1/appointments" });
   await app.register(paymentsRoutes, { prefix: "/api/v1/payments" });
   await app.register(adminRoutes, { prefix: "/api/v1/admin" });
+  await app.register(doctorRoutes, { prefix: "/api/v1/doctor" });
 
   return app;
 }

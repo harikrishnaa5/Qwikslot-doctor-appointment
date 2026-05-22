@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma } from "@prisma/client";
 import { AppointmentStatus, Role } from "@prisma/client";
+import { DOCTOR_ROLE } from "../../lib/roles.js";
 import bcrypt from "bcrypt";
 import { AppError } from "../../lib/errors.js";
 import { skipTake } from "../../lib/pagination.js";
@@ -93,29 +94,41 @@ export async function listDoctorsAdmin(app: FastifyInstance, q: z.infer<typeof a
 export async function createDoctor(app: FastifyInstance, body: z.infer<typeof createDoctorSchema>) {
   const dept = await app.prisma.department.findUnique({ where: { id: body.departmentId } });
   if (!dept) throw new AppError(400, "Invalid department", "INVALID_DEPARTMENT");
-  if (body.userId) {
-    const u = await app.prisma.user.findUnique({ where: { id: body.userId } });
-    if (!u) throw new AppError(400, "Invalid user", "INVALID_USER");
-    const taken = await app.prisma.doctor.findUnique({ where: { userId: body.userId } });
-    if (taken) throw new AppError(409, "User already linked to a doctor profile", "USER_TAKEN");
-  }
-  const imageUrl =
-    body.imageUrl && body.imageUrl.length > 0 ? body.imageUrl : null;
-  const experience =
-    body.experience && body.experience.length > 0 ? body.experience : null;
+
+  const existingUser = await app.prisma.user.findUnique({ where: { email: body.email } });
+  if (existingUser) throw new AppError(409, "Email already registered", "EMAIL_TAKEN");
+
+  const passwordHash = await bcrypt.hash(body.password, 10);
+  const imageUrl = body.imageUrl && body.imageUrl.length > 0 ? body.imageUrl : null;
+  const experience = body.experience && body.experience.length > 0 ? body.experience : null;
   const qualification =
     body.qualification && body.qualification.length > 0 ? body.qualification : null;
-  return app.prisma.doctor.create({
-    data: {
-      departmentId: body.departmentId,
-      name: body.name,
-      specialization: body.specialization ?? null,
-      experience,
-      qualification,
-      imageUrl,
-      userId: body.userId,
-      active: body.active ?? true,
-    },
+
+  return app.prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        email: body.email,
+        passwordHash,
+        name: body.name,
+        role: DOCTOR_ROLE,
+      },
+    });
+    return tx.doctor.create({
+      data: {
+        departmentId: body.departmentId,
+        name: body.name,
+        specialization: body.specialization ?? null,
+        experience,
+        qualification,
+        imageUrl,
+        userId: user.id,
+        active: body.active ?? true,
+      },
+      include: {
+        department: { select: { id: true, name: true } },
+        user: { select: { id: true, email: true } },
+      },
+    });
   });
 }
 
@@ -124,20 +137,87 @@ export async function updateDoctor(
   id: string,
   body: z.infer<typeof updateDoctorSchema>
 ) {
+  const existing = await app.prisma.doctor.findUnique({
+    where: { id },
+    include: { user: { select: { id: true, email: true } } },
+  });
+  if (!existing) throw new AppError(404, "Doctor not found", "NOT_FOUND");
+
+  const { email, password, imageUrl, experience, qualification, name, departmentId, specialization, active } =
+    body;
+
+  if (email) {
+    const emailOwner = await app.prisma.user.findUnique({ where: { email } });
+    if (emailOwner && emailOwner.id !== existing.userId) {
+      throw new AppError(409, "Email already registered", "EMAIL_TAKEN");
+    }
+  }
+
+  if ((email || password) && !existing.userId) {
+    if (!email || !password) {
+      throw new AppError(
+        400,
+        "Email and password are both required to create a login for this doctor",
+        "LOGIN_REQUIRED"
+      );
+    }
+  }
+
+  if (departmentId) {
+    const dept = await app.prisma.department.findUnique({ where: { id: departmentId } });
+    if (!dept) throw new AppError(400, "Invalid department", "INVALID_DEPARTMENT");
+  }
+
   try {
-    const { imageUrl, experience, qualification, ...rest } = body;
-    const data = { ...rest } as Prisma.DoctorUpdateInput;
-    if (imageUrl !== undefined) {
-      data.imageUrl = imageUrl.length > 0 ? imageUrl : null;
-    }
-    if (experience !== undefined) {
-      data.experience = experience.length > 0 ? experience : null;
-    }
-    if (qualification !== undefined) {
-      data.qualification = qualification.length > 0 ? qualification : null;
-    }
-    return await app.prisma.doctor.update({ where: { id }, data });
-  } catch {
+    return await app.prisma.$transaction(async (tx) => {
+      let linkedUserId = existing.userId;
+
+      if (!linkedUserId && email && password) {
+        const passwordHash = await bcrypt.hash(password, 10);
+        const user = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            name: name ?? existing.name,
+            role: DOCTOR_ROLE,
+          },
+        });
+        linkedUserId = user.id;
+      } else if (linkedUserId) {
+        const userData: Prisma.UserUpdateInput = {};
+        if (email) userData.email = email;
+        if (password) userData.passwordHash = await bcrypt.hash(password, 10);
+        if (name) userData.name = name;
+        if (Object.keys(userData).length > 0) {
+          await tx.user.update({ where: { id: linkedUserId }, data: userData });
+        }
+      }
+
+      const data: Prisma.DoctorUpdateInput = {};
+      if (departmentId !== undefined) data.department = { connect: { id: departmentId } };
+      if (name !== undefined) data.name = name;
+      if (specialization !== undefined) data.specialization = specialization;
+      if (active !== undefined) data.active = active;
+      if (imageUrl !== undefined) data.imageUrl = imageUrl.length > 0 ? imageUrl : null;
+      if (experience !== undefined) data.experience = experience.length > 0 ? experience : null;
+      if (qualification !== undefined) {
+        data.qualification = qualification.length > 0 ? qualification : null;
+      }
+      if (linkedUserId && linkedUserId !== existing.userId) {
+        data.user = { connect: { id: linkedUserId } };
+      }
+
+      return tx.doctor.update({
+        where: { id },
+        data,
+        include: {
+          department: { select: { id: true, name: true } },
+          user: { select: { id: true, email: true } },
+        },
+      });
+    });
+  } catch (err) {
+    if (err instanceof AppError) throw err;
     throw new AppError(404, "Doctor not found", "NOT_FOUND");
   }
 }

@@ -21,15 +21,26 @@ const doctorImageUrlSchema = z
 export const createDoctorSchema = z.object({
   departmentId: z.string().min(1),
   name: z.string().min(1).max(120),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
   specialization: z.string().max(200).optional(),
   experience: z.string().max(200).optional(),
   qualification: z.string().max(1000).optional(),
   imageUrl: z.union([doctorImageUrlSchema, z.literal("")]).optional(),
-  userId: z.string().optional(),
   active: z.boolean().optional(),
 });
 
-export const updateDoctorSchema = createDoctorSchema.partial();
+export const updateDoctorSchema = z.object({
+  departmentId: z.string().min(1).optional(),
+  name: z.string().min(1).max(120).optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(8).max(128).optional(),
+  specialization: z.string().max(200).optional(),
+  experience: z.string().max(200).optional(),
+  qualification: z.string().max(1000).optional(),
+  imageUrl: z.union([doctorImageUrlSchema, z.literal("")]).optional(),
+  active: z.boolean().optional(),
+});
 
 export const adminUserListQuerySchema = paginationQuerySchema;
 
