@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { AppPrismaClient } from "../lib/prisma-client.js";
 import type { JwtPayload } from "../modules/auth/auth.types";
 
 declare module "@fastify/jwt" {
@@ -10,6 +10,6 @@ declare module "@fastify/jwt" {
 
 declare module "fastify" {
   interface FastifyInstance {
-    prisma: PrismaClient;
+    prisma: AppPrismaClient;
   }
 }

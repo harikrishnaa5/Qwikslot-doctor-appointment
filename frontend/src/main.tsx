@@ -5,6 +5,7 @@ import { Provider } from "react-redux";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { store } from "./store";
 import { AppToaster } from "./components/AppToaster";
+import { AuthBootstrap } from "./components/AuthBootstrap";
 import { ThemeSync } from "./components/ThemeSync";
 import { App } from "./App";
 import "react-day-picker/style.css";
@@ -22,6 +23,7 @@ createRoot(document.getElementById("root")!).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <ThemeSync />
+          <AuthBootstrap />
           <AppToaster />
           <App />
         </BrowserRouter>

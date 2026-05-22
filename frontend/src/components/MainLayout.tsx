@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import { AppShell } from "./AppShell";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { toggleTheme } from "../store/slices/themeSlice";
+import { logoutRequest } from "../api/auth";
+import { getStoredRefreshToken } from "../api/client";
 import { clearCredentials } from "../store/slices/authSlice";
 import { clearSelectedDoctorId } from "../lib/selectedDoctor";
 
@@ -11,7 +13,7 @@ export function MainLayout() {
   const location = useLocation();
   const themeMode = useAppSelector((s) => s.theme.mode);
   const role = useAppSelector((s) => s.auth.user?.role ?? null);
-  const isAuthenticated = useAppSelector((s) => Boolean(s.auth.user && s.auth.token));
+  const isAuthenticated = useAppSelector((s) => Boolean(s.auth.user && s.auth.accessToken));
 
   useEffect(() => {
     if (location.pathname !== "/doctors") {
@@ -24,7 +26,11 @@ export function MainLayout() {
       themeMode={themeMode}
       role={role}
       isAuthenticated={isAuthenticated}
-      onLogout={() => dispatch(clearCredentials())}
+      onLogout={() => {
+        const refresh = getStoredRefreshToken();
+        if (refresh) void logoutRequest(refresh).catch(() => undefined);
+        dispatch(clearCredentials());
+      }}
       onToggleTheme={() => {
         dispatch(toggleTheme());
       }}

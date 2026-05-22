@@ -11,7 +11,13 @@ function* loginSaga(action: ReturnType<typeof loginRequested>): Generator {
     const res = (yield call(authApi.loginRequest, action.payload.email, action.payload.password)) as Awaited<
       ReturnType<typeof authApi.loginRequest>
     >;
-    yield put(setCredentials({ token: res.token, user: res.user }));
+    yield put(
+      setCredentials({
+        accessToken: res.accessToken,
+        refreshToken: res.refreshToken,
+        user: res.user,
+      })
+    );
     toast.success(SIGN_IN_SUCCESS_MESSAGE);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Login failed";
@@ -32,7 +38,13 @@ function* registerSaga(action: ReturnType<typeof registerRequested>): Generator 
       action.payload.email,
       action.payload.password
     )) as Awaited<ReturnType<typeof authApi.registerRequest>>;
-    yield put(setCredentials({ token: res.token, user: res.user }));
+    yield put(
+      setCredentials({
+        accessToken: res.accessToken,
+        refreshToken: res.refreshToken,
+        user: res.user,
+      })
+    );
     toast.success("Account created");
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Registration failed";

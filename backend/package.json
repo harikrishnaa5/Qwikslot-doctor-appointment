@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "npm run db:generate && tsx watch src/server.ts",
+    "postinstall": "prisma generate",
     "build": "tsc",
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
@@ -19,7 +20,7 @@
     "@fastify/jwt": "^9.0.3",
     "@fastify/multipart": "^10.0.0",
     "@fastify/websocket": "^11.0.2",
-    "@prisma/client": "^6.3.1",
+    "@prisma/client": "^6.19.3",
     "bcrypt": "^5.1.1",
     "fastify": "^5.2.1",
     "fastify-plugin": "^5.0.1",
@@ -33,7 +34,7 @@
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^22.10.10",
-    "prisma": "^6.3.1",
+    "prisma": "^6.19.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

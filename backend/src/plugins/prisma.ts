@@ -1,9 +1,9 @@
 import fp from "fastify-plugin";
-import { PrismaClient } from "@prisma/client";
 import type { FastifyPluginAsync } from "fastify";
+import { createPrismaClient } from "../lib/prisma-client.js";
 
 const prismaPlugin: FastifyPluginAsync = async (app) => {
-  const prisma = new PrismaClient({
+  const prisma = createPrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 

@@ -8,7 +8,7 @@ const jwtPlugin: FastifyPluginAsync = async (app) => {
 
   await app.register(jwt, {
     secret,
-    sign: { expiresIn: "7d" },
+    sign: { expiresIn: "12h" },
   });
 };
 
