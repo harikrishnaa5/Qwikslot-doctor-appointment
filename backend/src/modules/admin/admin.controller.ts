@@ -9,6 +9,7 @@ import { patchAppointmentStatusSchema } from "../appointments/appointments.schem
 import {
   adminAppointmentListSchema,
   adminResourceListQuerySchema,
+  adminPatientListQuerySchema,
   adminUserListQuerySchema,
   createDepartmentSchema,
   createDoctorSchema,
@@ -201,8 +202,8 @@ export async function advanceQueue(request: FastifyRequest, reply: FastifyReply)
 
 export async function listRegisteredUsers(request: FastifyRequest, reply: FastifyReply) {
   try {
-    const q = adminUserListQuerySchema.parse(request.query);
-    const result = await adminService.listRegisteredPatients(request.server, q);
+    const q = adminPatientListQuerySchema.parse(request.query);
+    const result = await adminService.listPatientsAdmin(request.server, q);
     return reply.send(result);
   } catch (err) {
     return sendError(reply, err);

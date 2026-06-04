@@ -7,6 +7,7 @@ import { AppError } from "./lib/errors.js";
 import prismaPlugin from "./plugins/prisma.js";
 import jwtPlugin from "./plugins/jwt.js";
 import websocketPlugin from "./plugins/websocket.js";
+import sessionSchedulerPlugin from "./plugins/session-scheduler.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import departmentsRoutes from "./modules/doctors/departments.routes.js";
 import doctorsRoutes from "./modules/doctors/doctors.routes.js";
@@ -45,6 +46,7 @@ export async function buildApp() {
   await app.register(prismaPlugin);
   await app.register(jwtPlugin);
   await app.register(websocketPlugin);
+  await app.register(sessionSchedulerPlugin);
 
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof ZodError) {

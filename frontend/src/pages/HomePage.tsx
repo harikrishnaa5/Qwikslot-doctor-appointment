@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { CalendarClock, ChevronRight, ListOrdered, Lock, Sparkles } from "lucide-react";
 import { fetchDepartments } from "../api/public";
-import { ButtonLink, Card, Skeleton } from "../components/ui";
+import { ButtonLink, Card } from "../components/ui";
+import { DirectoryCardListSkeleton } from "../components/skeletons";
 import { departmentNameToSlug } from "../lib/departmentSlug";
 
 const services = [
@@ -136,29 +137,27 @@ export function HomePage() {
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
           Choose a specialty below to browse doctors and available times near you.
         </p>
-        <ul className="mt-6 flex flex-col gap-3 sm:grid sm:grid-cols-2">
-          {deptQ.isLoading &&
-            Array.from({ length: 4 }).map((_, i) => (
-              <li key={i}>
-                <Skeleton className="h-24 w-full rounded-2xl" />
+        {deptQ.isLoading ? (
+          <DirectoryCardListSkeleton count={4} className="mt-6" />
+        ) : (
+          <ul className="mt-6 flex flex-col gap-3 sm:grid sm:grid-cols-2">
+            {deptQ.data?.slice(0, 4).map((d) => (
+              <li key={d.id}>
+                <Link to={`/departments/${departmentNameToSlug(d.name)}/doctors`}>
+                  <Card className="transition hover:border-teal-400/60 hover:shadow-md dark:hover:border-teal-600/50">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{d.name}</h3>
+                    {d.description && (
+                      <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-400">{d.description}</p>
+                    )}
+                    <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-teal-700 dark:text-teal-400">
+                      View doctors <ChevronRight className="h-4 w-4" aria-hidden />
+                    </p>
+                  </Card>
+                </Link>
               </li>
             ))}
-          {deptQ.data?.slice(0, 4).map((d) => (
-            <li key={d.id}>
-              <Link to={`/departments/${departmentNameToSlug(d.name)}/doctors`}>
-                <Card className="transition hover:border-teal-400/60 hover:shadow-md dark:hover:border-teal-600/50">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{d.name}</h3>
-                  {d.description && (
-                    <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-400">{d.description}</p>
-                  )}
-                  <p className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-teal-700 dark:text-teal-400">
-                    View doctors <ChevronRight className="h-4 w-4" aria-hidden />
-                  </p>
-                </Card>
-              </Link>
-            </li>
-          ))}
-        </ul>
+          </ul>
+        )}
         <div className="mt-6 text-center sm:text-left">
           <Link
             to="/browse"

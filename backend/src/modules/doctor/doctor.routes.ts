@@ -1,12 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
-import { DOCTOR_ROLE } from "../../lib/roles.js";
+import { Role } from "@prisma/client";
 import { authenticate } from "../../middleware/authenticate.js";
 import { requireRoles } from "../../middleware/require-roles.js";
 import * as controller from "./doctor.controller.js";
 
 const doctorRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", authenticate);
-  app.addHook("preHandler", requireRoles(DOCTOR_ROLE));
+  app.addHook("preHandler", requireRoles(Role.DOCTOR));
 
   app.get("/me", controller.me);
   app.patch("/profile", controller.patchProfile);

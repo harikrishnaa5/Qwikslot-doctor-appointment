@@ -16,10 +16,10 @@ export async function loginRequest(email: string, password: string) {
   });
 }
 
-export async function registerRequest(name: string, email: string, password: string) {
+export async function registerRequest(name: string, email: string, phone: string, password: string) {
   return apiFetch<AuthTokensResponse>("/api/v1/auth/register", {
     method: "POST",
-    body: JSON.stringify({ name, email, password }),
+    body: JSON.stringify({ name, email, phone, password }),
     token: null,
   });
 }

@@ -17,6 +17,7 @@ const queueAdminRoutes: FastifyPluginAsync = async (app) => {
   app.get("/doctors/:doctorId/sessions", controller.listSessions);
   app.post("/sessions", controller.createSession);
   app.patch("/sessions/:sessionId", controller.patchSession);
+  app.post("/sessions/:sessionId/start", controller.startConsultation);
   app.post("/sessions/:sessionId/next", controller.nextPatient);
   app.post("/sessions/:sessionId/skip", controller.skipPatient);
   app.post("/appointments/:appointmentId/complete", controller.completeAppointment);

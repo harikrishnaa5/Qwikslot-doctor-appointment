@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { AppError } from "../../lib/errors.js";
 import { BOOKING_SLOT_STEP_MINUTES } from "../../lib/slots-config.js";
+import { assertBookableAppointmentDate } from "../../lib/booking-rules.js";
 import { dateOnlyUtc, localDateTime, toDateOnlyIso } from "../../lib/time.js";
 import * as queueService from "../queue/queue.service.js";
 import * as sessionService from "../queue/session.service.js";
@@ -51,6 +52,15 @@ export async function getDoctor(app: FastifyInstance, id: string) {
 export async function getAvailableSlots(app: FastifyInstance, doctorId: string, dateStr: string) {
   const doctor = await app.prisma.doctor.findFirst({ where: { id: doctorId, active: true } });
   if (!doctor) throw new AppError(404, "Doctor not found", "NOT_FOUND");
+
+  try {
+    assertBookableAppointmentDate(dateStr);
+  } catch (e) {
+    if (e instanceof AppError && e.code === "BOOKING_TOO_SOON") {
+      return { date: dateStr, slots: [] as { start: string; end: string }[] };
+    }
+    throw e;
+  }
 
   const day = dateOnlyUtc(dateStr);
   const availabilities = await app.prisma.availability.findMany({

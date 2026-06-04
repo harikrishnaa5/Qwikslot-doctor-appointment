@@ -2,25 +2,45 @@ import type { FastifyInstance } from "fastify";
 import { AppointmentStatus, SessionStatus } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { formatTokenDisplay } from "../../lib/tokens.js";
+import { getSessionPhase } from "../../lib/session-window.js";
 import { toDateOnlyIso } from "../../lib/time.js";
 import * as sessionService from "./session.service.js";
 import type { QueueSnapshot } from "./queue.types.js";
 
-const ACTIVE_QUEUE_STATUSES: AppointmentStatus[] = [
+/** Shown in live queue once consultation has started. */
+export const LIVE_QUEUE_APPOINTMENT_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.WAITING,
   AppointmentStatus.CHECKED_IN,
-  AppointmentStatus.IN_PROGRESS,
 ];
+
+/** Patient currently with the doctor (CHECKED_IN + session current token). */
+function isServingAppointment(
+  a: { status: AppointmentStatus; tokenNumber: number },
+  currentToken: number
+): boolean {
+  return a.status === AppointmentStatus.CHECKED_IN && currentToken > 0 && a.tokenNumber === currentToken;
+}
+
+const ACTIVE_QUEUE_STATUSES: AppointmentStatus[] = [
+  ...LIVE_QUEUE_APPOINTMENT_STATUSES,
+];
+
+function isQueueLive(sessionStatus: SessionStatus): boolean {
+  return sessionStatus === SessionStatus.OPEN || sessionStatus === SessionStatus.PAUSED;
+}
 
 export async function buildQueueSnapshot(
   app: FastifyInstance,
   sessionId: string,
   options?: { patientAppointmentId?: string }
 ): Promise<QueueSnapshot> {
+  const { runSessionLifecycleTick } = await import("./session-lifecycle.service.js");
+  await runSessionLifecycleTick(app);
+
   const session = await sessionService.getSessionById(app, sessionId);
   const dateStr = toDateOnlyIso(session.date);
 
-  const appointments = await app.prisma.appointment.findMany({
+  const allAppointments = await app.prisma.appointment.findMany({
     where: {
       sessionId,
       status: { notIn: [AppointmentStatus.CANCELLED] },
@@ -31,28 +51,32 @@ export async function buildQueueSnapshot(
       tokenNumber: true,
       status: true,
       scheduledAt: true,
+      createdAt: true,
       checkedInAt: true,
       user: { select: { id: true, name: true } },
     },
   });
 
-  const inProgress = appointments.find((a) => a.status === AppointmentStatus.IN_PROGRESS);
-  const waiting = appointments.filter(
-    (a) =>
-      a.status === AppointmentStatus.WAITING || a.status === AppointmentStatus.CHECKED_IN
-  );
+  const sessionPhase = getSessionPhase(session);
+  const queueLive = isQueueLive(session.status);
+  const appointments = queueLive
+    ? allAppointments.filter((a) => a.status !== AppointmentStatus.BOOKED)
+    : [];
+
+  const serving = appointments.find((a) => isServingAppointment(a, session.currentToken));
+  const waiting = appointments.filter((a) => a.status === AppointmentStatus.WAITING);
 
   const currentTokenNumber =
-    inProgress?.tokenNumber ?? (session.currentToken > 0 ? session.currentToken : null);
+    serving?.tokenNumber ?? (session.currentToken > 0 ? session.currentToken : null);
 
   const patientAppt = options?.patientAppointmentId
-    ? appointments.find((a) => a.id === options.patientAppointmentId)
+    ? allAppointments.find((a) => a.id === options.patientAppointmentId)
     : undefined;
 
   let patientsAhead = 0;
   let estimatedWaitMinutes = 0;
 
-  if (patientAppt && ACTIVE_QUEUE_STATUSES.includes(patientAppt.status)) {
+  if (patientAppt && queueLive && ACTIVE_QUEUE_STATUSES.includes(patientAppt.status)) {
     const servingNum = currentTokenNumber ?? 0;
     patientsAhead = appointments.filter(
       (a) =>
@@ -62,7 +86,7 @@ export async function buildQueueSnapshot(
         a.tokenNumber < patientAppt.tokenNumber
     ).length;
 
-    if (patientAppt.status === AppointmentStatus.IN_PROGRESS) {
+    if (isServingAppointment(patientAppt, session.currentToken)) {
       patientsAhead = 0;
     }
 
@@ -76,6 +100,8 @@ export async function buildQueueSnapshot(
     doctorId: session.doctorId,
     doctorName: session.doctor.name,
     date: dateStr,
+    queueStarted: queueLive,
+    sessionPhase,
     session: {
       id: session.id,
       label: session.label,
@@ -88,11 +114,11 @@ export async function buildQueueSnapshot(
         session.currentToken > 0 ? formatTokenDisplay(session.currentToken) : null,
       avgMinutesPerPatient: session.avgMinutesPerPatient,
     },
-    current: inProgress
+    current: serving
       ? {
-          token: formatTokenDisplay(inProgress.tokenNumber),
-          tokenNumber: inProgress.tokenNumber,
-          appointmentId: inProgress.id,
+          token: formatTokenDisplay(serving.tokenNumber),
+          tokenNumber: serving.tokenNumber,
+          appointmentId: serving.id,
         }
       : session.currentToken > 0
         ? {
@@ -117,19 +143,33 @@ export async function buildQueueSnapshot(
             token: formatTokenDisplay(patientAppt.tokenNumber),
             tokenNumber: patientAppt.tokenNumber,
             status: patientAppt.status,
-            patientsAhead,
-            estimatedWaitMinutes,
+            patientsAhead: queueLive ? patientsAhead : 0,
+            estimatedWaitMinutes: queueLive ? estimatedWaitMinutes : 0,
           }
         : null,
-    appointments: appointments.map((a) => ({
-      id: a.id,
-      token: formatTokenDisplay(a.tokenNumber),
-      tokenNumber: a.tokenNumber,
-      status: a.status,
-      scheduledAt: a.scheduledAt.toISOString(),
-      patientName: a.user.name,
-      checkedInAt: a.checkedInAt?.toISOString() ?? null,
-    })),
+    appointments: appointments.map(mapQueueAppointment),
+    sessionAppointments: allAppointments.map(mapQueueAppointment),
+  };
+}
+
+function mapQueueAppointment(a: {
+  id: string;
+  tokenNumber: number;
+  status: AppointmentStatus;
+  scheduledAt: Date;
+  createdAt: Date;
+  checkedInAt: Date | null;
+  user: { name: string };
+}) {
+  return {
+    id: a.id,
+    token: formatTokenDisplay(a.tokenNumber),
+    tokenNumber: a.tokenNumber,
+    status: a.status,
+    scheduledAt: a.scheduledAt.toISOString(),
+    createdAt: a.createdAt.toISOString(),
+    patientName: a.user.name,
+    checkedInAt: a.checkedInAt?.toISOString() ?? null,
   };
 }
 
@@ -143,21 +183,38 @@ export async function getQueueStatus(
 
 export async function nextPatient(app: FastifyInstance, sessionId: string) {
   const result = await app.prisma.$transaction(async (tx) => {
-    const session = await tx.doctorSession.findUnique({ where: { id: sessionId } });
+    let session = await tx.doctorSession.findUnique({ where: { id: sessionId } });
     if (!session) throw new AppError(404, "Session not found", "NOT_FOUND");
     if (session.status === SessionStatus.CLOSED) {
       throw new AppError(400, "Session is closed", "SESSION_CLOSED");
     }
 
-    const inProgress = await tx.appointment.findFirst({
-      where: { sessionId, status: AppointmentStatus.IN_PROGRESS },
-      orderBy: { tokenNumber: "asc" },
-    });
-    if (inProgress) {
-      await tx.appointment.update({
-        where: { id: inProgress.id },
-        data: { status: AppointmentStatus.COMPLETED },
+    if (session.status === SessionStatus.SCHEDULED) {
+      await sessionService.activateConsultationQueueInTx(tx, sessionId);
+      session = await tx.doctorSession.findUniqueOrThrow({ where: { id: sessionId } });
+      if (session.status === SessionStatus.SCHEDULED) {
+        throw new AppError(
+          400,
+          "Consultation is not open yet (outside clinic hours)",
+          "CONSULTATION_NOT_STARTED"
+        );
+      }
+    }
+
+    if (session.currentToken > 0) {
+      const serving = await tx.appointment.findFirst({
+        where: {
+          sessionId,
+          status: AppointmentStatus.CHECKED_IN,
+          tokenNumber: session.currentToken,
+        },
       });
+      if (serving) {
+        await tx.appointment.update({
+          where: { id: serving.id },
+          data: { status: AppointmentStatus.COMPLETED },
+        });
+      }
     }
 
     const next = await tx.appointment.findFirst({
@@ -175,7 +232,10 @@ export async function nextPatient(app: FastifyInstance, sessionId: string) {
 
     await tx.appointment.update({
       where: { id: next.id },
-      data: { status: AppointmentStatus.IN_PROGRESS },
+      data: {
+        status: AppointmentStatus.CHECKED_IN,
+        checkedInAt: next.checkedInAt ?? new Date(),
+      },
     });
 
     await tx.doctorSession.update({
@@ -211,12 +271,18 @@ export async function skipPatient(
 
     let targetId = appointmentId;
     if (!targetId) {
+      if (session.currentToken <= 0) {
+        throw new AppError(400, "No patient currently being seen", "NO_CURRENT");
+      }
       const current = await tx.appointment.findFirst({
-        where: { sessionId, status: AppointmentStatus.IN_PROGRESS },
-        orderBy: { tokenNumber: "asc" },
+        where: {
+          sessionId,
+          status: AppointmentStatus.CHECKED_IN,
+          tokenNumber: session.currentToken,
+        },
       });
       if (!current) {
-        throw new AppError(400, "No patient currently in progress", "NO_CURRENT");
+        throw new AppError(400, "No patient currently being seen", "NO_CURRENT");
       }
       targetId = current.id;
     }
@@ -226,7 +292,6 @@ export async function skipPatient(
     });
     if (!appt) throw new AppError(404, "Appointment not found in this session", "NOT_FOUND");
     if (
-      appt.status !== AppointmentStatus.IN_PROGRESS &&
       appt.status !== AppointmentStatus.WAITING &&
       appt.status !== AppointmentStatus.CHECKED_IN
     ) {
@@ -256,7 +321,6 @@ export async function completePatient(app: FastifyInstance, appointmentId: strin
   });
   if (!existing) throw new AppError(404, "Appointment not found", "NOT_FOUND");
   if (
-    existing.status !== AppointmentStatus.IN_PROGRESS &&
     existing.status !== AppointmentStatus.CHECKED_IN &&
     existing.status !== AppointmentStatus.WAITING
   ) {

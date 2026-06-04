@@ -6,7 +6,10 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
   },
-  "include": ["prisma/seed.ts"]
+  "include": ["prisma/**/*.ts"]
 }

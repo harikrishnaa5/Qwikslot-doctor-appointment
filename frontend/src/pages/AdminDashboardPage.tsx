@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -27,6 +28,7 @@ import {
   type AdminAvailabilityRow,
   type AdminDepartment,
   type AdminDoctor,
+  type AdminPatientFilter,
 } from "../api/admin";
 import {
   defaultAvailabilityStartEnd,
@@ -48,15 +50,24 @@ import {
   ModalOverlay,
   ModalPanel,
   PageHeader,
-  Skeleton,
   TablePagination,
 } from "../components/ui";
+import {
+  AdminAppointmentsTableSkeleton,
+  AdminAvailabilityTableSkeleton,
+  AdminDepartmentsTableSkeleton,
+  AdminDoctorsTableSkeleton,
+  AdminPatientsTableSkeleton,
+  AdminStaffTableSkeleton,
+  DateFilterCardSkeleton,
+} from "../components/skeletons";
 import { DoctorAvatar } from "../components/DoctorAvatar";
 import { useAppSelector } from "../store/hooks";
 import { CalendarDatePicker, ClockTimePicker } from "../components/date-time";
 import { DropdownSelect } from "../components/DropdownSelect";
 import { adminListSessions, adminSessionNext, fetchDoctorQueue } from "../api/queue";
-import { formatAppointmentStatus } from "../lib/appointmentStatus";
+import { formatAppointmentStatus, formatPatientDisplayStatus } from "../lib/appointmentStatus";
+import { formatLocaleDateTime } from "../lib/dates";
 import {
   ADMIN_NAV_META,
   adminPath,
@@ -154,15 +165,34 @@ export function AdminDashboardPage() {
     setApptPage(1);
   }, [apptDate]);
 
+  const [patientDate, setPatientDate] = useState<string | null>(null);
+  const [patientFilter, setPatientFilter] = useState<AdminPatientFilter>("all");
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientSearchDebounced, setPatientSearchDebounced] = useState("");
   const [patientPage, setPatientPage] = useState(1);
   const patientsQ = useQuery({
-    queryKey: ["admin-patients", patientPage],
+    queryKey: ["admin-patients", patientDate, patientFilter, patientSearchDebounced, patientPage],
     queryFn: async () => {
-      const p = new URLSearchParams({ page: String(patientPage), pageSize: "15" });
+      const p = new URLSearchParams({
+        page: String(patientPage),
+        pageSize: "15",
+        filter: patientFilter,
+      });
+      if (patientDate) p.set("date", patientDate);
+      if (patientSearchDebounced) p.set("search", patientSearchDebounced);
       return adminListRegisteredUsers(p);
     },
     enabled: tab === "patients" && (role === "ADMIN" || role === "SUPER_ADMIN"),
   });
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setPatientSearchDebounced(patientSearch.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [patientSearch]);
+
+  useEffect(() => {
+    setPatientPage(1);
+  }, [patientDate, patientFilter, patientSearchDebounced]);
 
   const [staffPage, setStaffPage] = useState(1);
   const staffQ = useQuery({
@@ -223,8 +253,14 @@ export function AdminDashboardPage() {
   const [staffRole, setStaffRole] = useState<"ADMIN" | "USER">("ADMIN");
   const [staffModal, setStaffModal] = useState<StaffModalState | null>(null);
   const [staffDeleteTarget, setStaffDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [patientEditTarget, setPatientEditTarget] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [patientEditTarget, setPatientEditTarget] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+  } | null>(null);
   const [patientEditName, setPatientEditName] = useState("");
+  const [patientEditPhone, setPatientEditPhone] = useState("");
   const [patientDeleteTarget, setPatientDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [apptActionOpenId, setApptActionOpenId] = useState<string | null>(null);
   const [apptActionMenuPos, setApptActionMenuPos] = useState<{ top: number; left: number } | null>(null);
@@ -242,7 +278,7 @@ export function AdminDashboardPage() {
   useEffect(() => {
     if (editingDoc) {
       setDocName(editingDoc.name);
-      setDocEmail(editingDoc.user?.email ?? "");
+      setDocEmail(editingDoc.email ?? "");
       setDocPassword("");
       setDocDeptId(editingDoc.departmentId);
       setDocExperience(editingDoc.experience ?? "");
@@ -511,6 +547,7 @@ export function AdminDashboardPage() {
       else toast.message(r.message ?? "No tokens");
       qc.invalidateQueries({ queryKey: ["admin-queue-snapshot"] });
       qc.invalidateQueries({ queryKey: ["admin-appointments"] });
+      qc.invalidateQueries({ queryKey: ["admin-sessions"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -530,7 +567,6 @@ export function AdminDashboardPage() {
         email: staffEmail,
         password: staffPassword,
         name: staffName,
-        role: staffRole,
       }),
     onSuccess: () => {
       toast.success("User created");
@@ -543,7 +579,8 @@ export function AdminDashboardPage() {
   });
 
   const patchStaffUser = useMutation({
-    mutationFn: (p: { id: string; name?: string; role?: string }) => superPatchUser(p.id, { name: p.name, role: p.role }),
+    mutationFn: (p: { id: string; name?: string; phone?: string | null; role?: string }) =>
+      superPatchUser(p.id, { name: p.name, phone: p.phone, role: p.role }),
     onSuccess: () => {
       toast.success("User updated");
       setStaffModal(null);
@@ -617,7 +654,7 @@ export function AdminDashboardPage() {
 
           <Card className="overflow-hidden p-0">
             {deptTableQ.isLoading ? (
-              <Skeleton className="h-44 w-full rounded-none" />
+              <AdminDepartmentsTableSkeleton />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px] text-sm">
@@ -706,7 +743,7 @@ export function AdminDashboardPage() {
 
           <Card className="overflow-hidden p-0">
             {docTableQ.isLoading ? (
-              <Skeleton className="h-44 w-full rounded-none" />
+              <AdminDoctorsTableSkeleton />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] text-sm">
@@ -829,7 +866,7 @@ export function AdminDashboardPage() {
                 Select a doctor to list their availability.
               </p>
             ) : availListQ.isLoading ? (
-              <Skeleton className="h-36 w-full rounded-none" />
+              <AdminAvailabilityTableSkeleton />
             ) : availListQ.isError ? (
               <p className="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">
                 Could not load availability. Try again or refresh the page.
@@ -916,17 +953,21 @@ export function AdminDashboardPage() {
 
       {tab === "appt" && (
         <div className="flex flex-col gap-3">
-          <Card>
-            <CalendarDatePicker
-              label="Filter by date"
-              value={apptDate}
-              onChange={setApptDate}
-              className="max-w-sm"
-            />
-          </Card>
+          {apptQ.isLoading ? (
+            <DateFilterCardSkeleton />
+          ) : (
+            <Card>
+              <CalendarDatePicker
+                label="Filter by date"
+                value={apptDate}
+                onChange={setApptDate}
+                className="max-w-sm"
+              />
+            </Card>
+          )}
           <Card className="overflow-visible p-0">
             {apptQ.isLoading ? (
-              <Skeleton className="h-44 w-full rounded-none" />
+              <AdminAppointmentsTableSkeleton />
             ) : (
               <div className="overflow-x-auto overflow-y-visible">
               <table className="w-full min-w-[920px] text-sm">
@@ -1019,7 +1060,7 @@ export function AdminDashboardPage() {
                 style={{ top: apptActionMenuPos.top, left: apptActionMenuPos.left }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {(["WAITING", "CHECKED_IN", "IN_PROGRESS", "SKIPPED", "COMPLETED", "CANCELLED"] as const).map((s) => {
+                {(["BOOKED", "WAITING", "CHECKED_IN", "SKIPPED", "COMPLETED", "CANCELLED"] as const).map((s) => {
                   const current = apptQ.data?.appointments.find((x) => x.id === apptActionOpenId)?.status;
                   return (
                     <button
@@ -1055,21 +1096,31 @@ export function AdminDashboardPage() {
             onChange={setQueueDate}
             className="mb-3"
           />
-          {queueSessionsQ.data && queueSessionsQ.data.sessions.length > 1 && (
-            <>
-              <label className="mb-2 block text-sm">Session</label>
-              <DropdownSelect
-                className="mb-3"
-                value={queueSession}
-                onChange={setQueueSession}
-                options={queueSessionsQ.data.sessions.map((s) => ({
-                  value: s.id,
-                  label: `${s.label} (${s.startTime}–${s.endTime})`,
-                }))}
-              />
-            </>
+          {queueSessionsQ.data?.sessions[0] && (
+            <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+              Clinic hours: {queueSessionsQ.data.sessions[0].startTime}–
+              {queueSessionsQ.data.sessions[0].endTime} on the appointment day. The live queue opens and
+              closes automatically at these times. Patients not completed or skipped by staff are
+              marked cancelled when the session ends.
+            </p>
           )}
-          {queueSnapshotQ.data && (
+          {queueSnapshotQ.data?.sessionPhase === "before_start" && (
+            <p className="mb-3 text-sm text-amber-800 dark:text-amber-200">
+              Before clinic hours — the queue will open automatically at session start time.
+            </p>
+          )}
+          {queueSnapshotQ.data?.sessionPhase === "after_end" && (
+            <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+              Clinic hours have ended for this day. Outstanding appointments were cancelled unless
+              staff updated them.
+            </p>
+          )}
+          {queueSnapshotQ.data && !queueSnapshotQ.data.queueStarted && queueSnapshotQ.data.sessionPhase === "active" && (
+            <p className="mb-3 text-sm text-amber-800 dark:text-amber-200">
+              Opening live queue…
+            </p>
+          )}
+          {queueSnapshotQ.data?.queueStarted && (
             <div className="mb-4 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">
               <p className="text-xs font-medium uppercase text-slate-500">Now serving</p>
               <p className="font-mono text-xl font-semibold text-teal-800 dark:text-teal-300">
@@ -1081,10 +1132,49 @@ export function AdminDashboardPage() {
               </p>
             </div>
           )}
+          {queueSnapshotQ.data && queueSnapshotQ.data.sessionAppointments.length > 0 && (
+            <div className="mb-4 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left dark:border-slate-700 dark:bg-slate-800/50">
+                    <th className="px-3 py-2 text-xs font-semibold uppercase text-slate-500">Token</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase text-slate-500">Patient</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase text-slate-500">Appointment</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase text-slate-500">Booked on</th>
+                    <th className="px-3 py-2 text-xs font-semibold uppercase text-slate-500">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {queueSnapshotQ.data.sessionAppointments.map((a) => (
+                    <tr
+                      key={a.id}
+                      className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                    >
+                      <td className="px-3 py-2 font-mono font-medium">{a.token}</td>
+                      <td className="px-3 py-2">{a.patientName}</td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {formatLocaleDateTime(a.scheduledAt)}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {formatLocaleDateTime(a.createdAt)}
+                      </td>
+                      <td className="px-3 py-2">{formatAppointmentStatus(a.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <Button
             className="w-full"
             onClick={() => nextTok.mutate()}
-            disabled={nextTok.isPending || !queueDoctor || !queueSessionsQ.data?.sessions.length}
+            disabled={
+              nextTok.isPending ||
+              !queueDoctor ||
+              !queueSessionsQ.data?.sessions.length ||
+              !queueSnapshotQ.data?.queueStarted ||
+              queueSnapshotQ.data?.sessionPhase !== "active"
+            }
           >
             Next patient
           </Button>
@@ -1093,36 +1183,127 @@ export function AdminDashboardPage() {
 
       {tab === "patients" && (role === "ADMIN" || role === "SUPER_ADMIN") && (
         <div className="flex flex-col gap-3">
+          <Card className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-[12rem] flex-1">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Search</label>
+              <input
+                type="search"
+                value={patientSearch}
+                onChange={(e) => setPatientSearch(e.target.value)}
+                placeholder="Name, email, or phone"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none ring-teal-500/40 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </div>
+            <CalendarDatePicker
+              label="Date"
+              value={patientDate}
+              onChange={setPatientDate}
+              className="max-w-sm flex-1"
+            />
+            <div className="max-w-xs flex-1">
+              <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Status</label>
+              <DropdownSelect
+                value={patientFilter}
+                onChange={(v) => setPatientFilter(v as AdminPatientFilter)}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "pending", label: "Pending" },
+                  { value: "completed", label: "Completed" },
+                ]}
+                clearable={false}
+                searchable={false}
+              />
+            </div>
+          </Card>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Registered patient accounts ({patientsQ.data?.total ?? "…"} total).
+            {patientsQ.data?.total ?? "…"} patient{patientsQ.data?.total === 1 ? "" : "s"}
+            {patientDate
+              ? ` for ${new Date(`${patientDate}T12:00:00`).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}`
+              : " (all registered patients)"}
+            {patientFilter === "pending"
+              ? " — not booked or awaiting consultation"
+              : patientFilter === "completed"
+                ? " — completed, cancelled, or skipped"
+                : ""}
           </p>
           <Card className="overflow-hidden p-0">
             {patientsQ.isLoading ? (
-              <Skeleton className="h-44 w-full rounded-none" />
+              <AdminPatientsTableSkeleton withActions={canManageUsers} />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] text-sm">
+                <table className="w-full min-w-[1000px] text-sm">
                   <thead className="bg-slate-50 dark:bg-slate-800/40">
                     <tr>
                       <th className="w-14 px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">SL.No</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Name</th>
                       <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Email</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Role</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Joined</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Phone</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Status</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Doctor</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Token</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Scheduled</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Registered</th>
                       {canManageUsers && (
                         <th className="px-4 py-3 text-right font-semibold text-slate-700 dark:text-slate-300">Actions</th>
                       )}
                     </tr>
                   </thead>
                   <tbody>
-                    {patientsQ.data?.users.map((u, idx) => (
-                      <tr key={u.id} className="border-t border-slate-100 dark:border-slate-800">
+                    {patientsQ.data?.patients.map((u, idx) => (
+                      <tr
+                        key={u.appointmentId ? `${u.id}-${u.appointmentId}` : u.id}
+                        className="border-t border-slate-100 dark:border-slate-800"
+                      >
                         <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
                           {(patientPage - 1) * (patientsQ.data?.pageSize ?? 15) + idx + 1}
                         </td>
                         <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{u.name}</td>
                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{u.email}</td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{u.role}</td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{u.phone ?? "—"}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={clsx(
+                              "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                              u.displayStatus === "NOT_BOOKED"
+                                ? "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"
+                                : u.displayStatus === "COMPLETED" ||
+                                    u.displayStatus === "CANCELLED" ||
+                                    u.displayStatus === "SKIPPED"
+                                  ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                  : "bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-200"
+                            )}
+                          >
+                            {formatPatientDisplayStatus(u.displayStatus)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                          {u.doctorName ? (
+                            <>
+                              <p>{u.doctorName}</p>
+                              {u.departmentName ? (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{u.departmentName}</p>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-teal-800 dark:text-teal-300">
+                          {u.token ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                          {u.scheduledAt
+                            ? new Date(u.scheduledAt).toLocaleString(undefined, {
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </td>
                         <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
                           {new Date(u.createdAt).toLocaleDateString()}
                         </td>
@@ -1131,8 +1312,14 @@ export function AdminDashboardPage() {
                             <div className="flex justify-end gap-2">
                               <EditButton
                                 onClick={() => {
-                                  setPatientEditTarget({ id: u.id, name: u.name, email: u.email });
+                                  setPatientEditTarget({
+                                    id: u.id,
+                                    name: u.name,
+                                    email: u.email,
+                                    phone: u.phone,
+                                  });
                                   setPatientEditName(u.name);
+                                  setPatientEditPhone(u.phone ?? "");
                                 }}
                               />
                               <DeleteButton
@@ -1144,10 +1331,13 @@ export function AdminDashboardPage() {
                         )}
                       </tr>
                     ))}
-                    {!patientsQ.data?.users.length && (
+                    {!patientsQ.data?.patients.length && (
                       <tr>
-                        <td colSpan={canManageUsers ? 6 : 5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-                          No patients found.
+                        <td
+                          colSpan={canManageUsers ? 10 : 9}
+                          className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                        >
+                          No patients match your filters.
                         </td>
                       </tr>
                     )}
@@ -1234,7 +1424,7 @@ export function AdminDashboardPage() {
 
           <Card className="overflow-hidden p-0">
             {staffQ.isLoading ? (
-              <Skeleton className="h-44 w-full rounded-none" />
+              <AdminStaffTableSkeleton />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px] text-sm">
@@ -1357,15 +1547,26 @@ export function AdminDashboardPage() {
           title="Edit patient"
           email={patientEditTarget.email}
           name={patientEditName}
+          phone={patientEditPhone}
+          showPhone
           isSaving={patchStaffUser.isPending}
           onNameChange={setPatientEditName}
+          onPhoneChange={setPatientEditPhone}
           onClose={() => setPatientEditTarget(null)}
           onSubmit={() => {
-            if (patientEditName.trim() === patientEditTarget.name.trim()) {
+            const name = patientEditName.trim();
+            const phone = patientEditPhone.trim();
+            const nameChanged = name !== patientEditTarget.name.trim();
+            const phoneChanged = phone !== (patientEditTarget.phone ?? "").trim();
+            if (!nameChanged && !phoneChanged) {
               toast.message("No changes");
               return;
             }
-            patchStaffUser.mutate({ id: patientEditTarget.id, name: patientEditName.trim() });
+            patchStaffUser.mutate({
+              id: patientEditTarget.id,
+              ...(nameChanged ? { name } : {}),
+              ...(phoneChanged ? { phone: phone || null } : {}),
+            });
           }}
         />
       )}
@@ -1462,7 +1663,7 @@ export function AdminDashboardPage() {
           email={docEmail}
           password={docPassword}
           accountMode="edit"
-          hasLoginAccount={Boolean(editingDoc.user?.email)}
+          hasLoginAccount
           departmentId={docDeptId}
           specialization={docSpecialization}
           experience={docExperience}
@@ -1699,16 +1900,22 @@ function EditUserNameModal({
   title,
   email,
   name,
+  phone,
+  showPhone,
   isSaving,
   onNameChange,
+  onPhoneChange,
   onClose,
   onSubmit,
 }: {
   title: string;
   email: string;
   name: string;
+  phone?: string;
+  showPhone?: boolean;
   isSaving: boolean;
   onNameChange: (v: string) => void;
+  onPhoneChange?: (v: string) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -1748,6 +1955,16 @@ function EditUserNameModal({
             onChange={(e) => onNameChange(e.target.value)}
             placeholder="Full name"
           />
+          {showPhone && onPhoneChange ? (
+            <input
+              className="w-full rounded-lg border border-slate-200 px-3 py-3 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              type="tel"
+              inputMode="tel"
+              value={phone ?? ""}
+              onChange={(e) => onPhoneChange(e.target.value)}
+              placeholder="Mobile number"
+            />
+          ) : null}
         </form>
       </ModalPanel>
     </ModalOverlay>

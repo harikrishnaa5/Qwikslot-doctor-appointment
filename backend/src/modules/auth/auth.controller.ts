@@ -46,7 +46,7 @@ export async function logout(request: FastifyRequest, reply: FastifyReply) {
 export async function me(request: FastifyRequest, reply: FastifyReply) {
   try {
     if (!request.user) return reply.status(401).send({ error: "Unauthorized" });
-    const user = await authService.getMe(request.server, request.user.sub);
+    const user = await authService.getMe(request.server, request.user.sub, request.user.role);
     return reply.send({ user });
   } catch (err) {
     return sendError(reply, err);

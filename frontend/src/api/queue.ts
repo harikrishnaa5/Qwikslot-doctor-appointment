@@ -5,6 +5,8 @@ export type QueueSnapshot = {
   doctorId: string;
   doctorName: string;
   date: string;
+  queueStarted: boolean;
+  sessionPhase?: "before_day" | "before_start" | "active" | "after_end";
   session: {
     id: string;
     label: string;
@@ -36,15 +38,19 @@ export type QueueSnapshot = {
     patientsAhead: number;
     estimatedWaitMinutes: number;
   } | null;
-  appointments: {
-    id: string;
-    token: string;
-    tokenNumber: number;
-    status: string;
-    scheduledAt: string;
-    patientName: string;
-    checkedInAt: string | null;
-  }[];
+  appointments: QueueAppointmentRow[];
+  sessionAppointments: QueueAppointmentRow[];
+};
+
+export type QueueAppointmentRow = {
+  id: string;
+  token: string;
+  tokenNumber: number;
+  status: string;
+  scheduledAt: string;
+  createdAt: string;
+  patientName: string;
+  checkedInAt: string | null;
 };
 
 export type DoctorSessionRow = {
@@ -90,6 +96,13 @@ export async function adminListSessions(doctorId: string, date?: string) {
   const q = date ? `?date=${encodeURIComponent(date)}` : "";
   return apiFetch<{ sessions: DoctorSessionRow[] }>(
     `/api/v1/admin/doctors/${doctorId}/sessions${q}`
+  );
+}
+
+export async function adminStartConsultation(sessionId: string) {
+  return apiFetch<{ session: DoctorSessionRow }>(
+    `/api/v1/admin/sessions/${sessionId}/start`,
+    { method: "POST" }
   );
 }
 

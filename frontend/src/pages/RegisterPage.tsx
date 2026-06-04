@@ -13,6 +13,7 @@ export function RegisterPage() {
   const nav = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
 
   useEffect(() => {
@@ -30,7 +31,7 @@ export function RegisterPage() {
           autoComplete="off"
           onSubmit={(e) => {
             e.preventDefault();
-            dispatch(registerRequested({ name, email, password }));
+            dispatch(registerRequested({ name, email, phone, password }));
           }}
         >
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -51,6 +52,19 @@ export function RegisterPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Mobile number
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-base outline-none ring-teal-500/40 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="e.g. +919876543210"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
               required
             />
           </label>

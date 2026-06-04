@@ -36,6 +36,7 @@ function* registerSaga(action: ReturnType<typeof registerRequested>): Generator 
       authApi.registerRequest,
       action.payload.name,
       action.payload.email,
+      action.payload.phone,
       action.payload.password
     )) as Awaited<ReturnType<typeof authApi.registerRequest>>;
     yield put(

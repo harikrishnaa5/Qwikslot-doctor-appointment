@@ -7,9 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// JWT / API role labels (not stored on patients).
 enum Role {
   USER
   DOCTOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AdminRole {
   ADMIN
   SUPER_ADMIN
 }
@@ -22,41 +28,63 @@ enum SessionStatus {
 }
 
 enum AppointmentStatus {
+  BOOKED
   WAITING
   CHECKED_IN
-  IN_PROGRESS
   SKIPPED
   COMPLETED
   CANCELLED
 }
 
+/// Registered patients only.
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
   name         String
-  role         Role     @default(USER)
+  phone        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  doctorProfile  Doctor?
-  appointments   Appointment[]
-  refreshTokens  RefreshToken[]
+  appointments  Appointment[]
+  refreshTokens RefreshToken[]
+
+  @@index([phone])
+}
+
+/// Clinic staff (admin and super admin).
+model Admin {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         AdminRole
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  refreshTokens RefreshToken[]
 
   @@index([role])
 }
 
 model RefreshToken {
   id        String    @id @default(cuid())
-  userId    String
   tokenHash String    @unique
   expiresAt DateTime
   createdAt DateTime  @default(now())
   revokedAt DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patientId String?
+  doctorId  String?
+  adminId   String?
 
-  @@index([userId])
+  patient User?   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor? @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  admin   Admin?  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([adminId])
   @@index([expiresAt])
 }
 
@@ -72,24 +100,26 @@ model Department {
   @@index([name])
 }
 
+/// Doctors with their own login credentials.
 model Doctor {
   id             String   @id @default(cuid())
   departmentId   String
+  email          String   @unique
+  passwordHash   String
   name           String
   specialization String?
   experience     String?
   qualification  String?
   imageUrl       String?
-  userId         String?  @unique
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   department     Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   availabilities Availability[]
   sessions       DoctorSession[]
   appointments   Appointment[]
+  refreshTokens  RefreshToken[]
 
   @@index([departmentId])
   @@index([active])
@@ -104,19 +134,18 @@ model Availability {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  doctor  Doctor         @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  session DoctorSession?
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@index([doctorId, date])
 }
 
-/// Independent queue per doctor per day/session (e.g. morning vs evening).
+/// One queue per doctor per calendar day (all availability blocks share it).
 model DoctorSession {
   id                   String        @id @default(cuid())
   doctorId             String
-  availabilityId       String?       @unique
   date                 DateTime      @db.Date
   label                String
+  /// Span of all availability windows for this day (updated when availability changes).
   startTime            String
   endTime              String
   status               SessionStatus @default(SCHEDULED)
@@ -131,12 +160,10 @@ model DoctorSession {
   updatedAt            DateTime      @updatedAt
 
   doctor       Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  availability Availability? @relation(fields: [availabilityId], references: [id], onDelete: SetNull)
   appointments Appointment[]
 
-  @@unique([doctorId, date, startTime, endTime])
+  @@unique([doctorId, date])
   @@index([doctorId, date, status])
-  @@index([doctorId, date])
 }
 
 model Appointment {
@@ -147,7 +174,7 @@ model Appointment {
   scheduledAt    DateTime
   date           DateTime          @db.Date
   tokenNumber    Int
-  status         AppointmentStatus @default(WAITING)
+  status         AppointmentStatus @default(BOOKED)
   paymentRef     String?
   notes          String?
   scheduleNotice String?
@@ -155,9 +182,9 @@ model Appointment {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  doctor  Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  doctor  Doctor         @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   session DoctorSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, tokenNumber])
   @@unique([doctorId, scheduledAt])

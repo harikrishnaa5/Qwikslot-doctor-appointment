@@ -7,7 +7,7 @@ import { HomePage } from "./pages/HomePage";
 import { BrowsePage } from "./pages/BrowsePage";
 import { DepartmentDoctorsPage } from "./pages/DepartmentDoctorsPage";
 import { DoctorDetailPage } from "./pages/DoctorDetailPage";
-// import { BookingConfirmPage } from "./pages/BookingConfirmPage";
+import { BookingConfirmPage } from "./pages/BookingConfirmPage";
 import { BookingsPage } from "./pages/BookingsPage";
 import { TokenLivePage } from "./pages/TokenLivePage";
 import { AdminDashboardPage } from "./pages/AdminDashboardPage";
@@ -34,8 +34,8 @@ export function App() {
           <Route path="doctors" element={<DoctorDetailPage />} />
         </Route>
         <Route element={<RequireAuth />}>
-          {/* Booking confirm disabled: <Route path="booking/confirm" element={<BookingConfirmPage />} /> */}
           <Route element={<RequirePatient />}>
+            <Route path="booking/confirm" element={<BookingConfirmPage />} />
             <Route path="bookings" element={<BookingsPage />} />
             <Route path="token" element={<TokenLivePage />} />
           </Route>

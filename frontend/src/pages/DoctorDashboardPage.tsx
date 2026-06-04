@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreVertical } from "lucide-react";
-import { Card, Skeleton } from "../components/ui";
+import { Card } from "../components/ui";
+import { DateFilterCardSkeleton, DoctorAppointmentsTableSkeleton } from "../components/skeletons";
 import { CalendarDatePicker } from "../components/date-time";
 import { doctorGetMe, doctorListAppointments, doctorUpdateAppointmentStatus } from "../api/doctor";
 import { localTodayStr } from "../lib/dates";
@@ -10,9 +11,9 @@ import type { AppointmentStatus } from "../api/types";
 import { toast } from "../lib/toast";
 
 const STATUS_OPTIONS: AppointmentStatus[] = [
+  "BOOKED",
   "WAITING",
   "CHECKED_IN",
-  "IN_PROGRESS",
   "SKIPPED",
   "COMPLETED",
   "CANCELLED",
@@ -104,18 +105,22 @@ export function DoctorDashboardPage() {
         )}
       </div>
 
-      <Card>
-        <CalendarDatePicker
-          label="Filter by date"
-          value={date}
-          onChange={(v) => v && setDate(v)}
-          className="max-w-sm"
-        />
-      </Card>
+      {apptQ.isLoading ? (
+        <DateFilterCardSkeleton />
+      ) : (
+        <Card>
+          <CalendarDatePicker
+            label="Filter by date"
+            value={date}
+            onChange={(v) => v && setDate(v)}
+            className="max-w-sm"
+          />
+        </Card>
+      )}
 
       <Card className="overflow-visible p-0">
         {apptQ.isLoading ? (
-          <Skeleton className="h-44 w-full rounded-none" />
+          <DoctorAppointmentsTableSkeleton />
         ) : (
           <div className="overflow-x-auto overflow-y-visible">
             <table className="w-full min-w-[720px] text-sm">

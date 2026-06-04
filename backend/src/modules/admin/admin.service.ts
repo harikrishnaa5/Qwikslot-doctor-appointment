@@ -1,17 +1,38 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma } from "@prisma/client";
 import { AppointmentStatus, Role } from "@prisma/client";
-import { DOCTOR_ROLE } from "../../lib/roles.js";
 import bcrypt from "bcrypt";
 import { AppError } from "../../lib/errors.js";
+import { adminRoleToJwt, assertEmailAvailable } from "../../lib/account.js";
+import {
+  adminDb,
+  asAdminCreateInput,
+  asAdminListRow,
+  asAdminRow,
+  asAdminUpdateInput,
+  asDoctorUncheckedCreate,
+  asDoctorUncheckedUpdate,
+  asPatientPublicRow,
+  asUserSelect,
+  asUserUncheckedUpdate,
+  asUserWhereInput,
+  patientListSelect,
+  type AdminListRow,
+  type PatientPublicRow,
+} from "../../lib/prisma-bridge.js";
+import { AdminRole, type AdminRoleValue } from "../../lib/roles.js";
 import { skipTake } from "../../lib/pagination.js";
 import { syncScheduleNoticesForDoctorDate } from "../../lib/schedule-notices.js";
 import { dateOnlyUtc, localDateTime, toDateOnlyIsoFromDbDate } from "../../lib/time.js";
 import { formatTokenDisplay } from "../../lib/tokens.js";
-import { ensureSessionForAvailability } from "../queue/session.service.js";
+import {
+  ensureSessionForAvailability,
+  syncSessionTimeRange,
+} from "../queue/session.service.js";
 import type {
   adminAppointmentListSchema,
   adminResourceListQuerySchema,
+  adminPatientListQuerySchema,
   adminUserListQuerySchema,
   createDepartmentSchema,
   createDoctorSchema,
@@ -84,7 +105,6 @@ export async function listDoctorsAdmin(app: FastifyInstance, q: z.infer<typeof a
       take,
       include: {
         department: { select: { id: true, name: true } },
-        user: { select: { id: true, email: true } },
       },
     }),
   ]);
@@ -95,8 +115,7 @@ export async function createDoctor(app: FastifyInstance, body: z.infer<typeof cr
   const dept = await app.prisma.department.findUnique({ where: { id: body.departmentId } });
   if (!dept) throw new AppError(400, "Invalid department", "INVALID_DEPARTMENT");
 
-  const existingUser = await app.prisma.user.findUnique({ where: { email: body.email } });
-  if (existingUser) throw new AppError(409, "Email already registered", "EMAIL_TAKEN");
+  await assertEmailAvailable(app, body.email);
 
   const passwordHash = await bcrypt.hash(body.password, 10);
   const imageUrl = body.imageUrl && body.imageUrl.length > 0 ? body.imageUrl : null;
@@ -104,31 +123,21 @@ export async function createDoctor(app: FastifyInstance, body: z.infer<typeof cr
   const qualification =
     body.qualification && body.qualification.length > 0 ? body.qualification : null;
 
-  return app.prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({
-      data: {
-        email: body.email,
-        passwordHash,
-        name: body.name,
-        role: DOCTOR_ROLE,
-      },
-    });
-    return tx.doctor.create({
-      data: {
-        departmentId: body.departmentId,
-        name: body.name,
-        specialization: body.specialization ?? null,
-        experience,
-        qualification,
-        imageUrl,
-        userId: user.id,
-        active: body.active ?? true,
-      },
-      include: {
-        department: { select: { id: true, name: true } },
-        user: { select: { id: true, email: true } },
-      },
-    });
+  return app.prisma.doctor.create({
+    data: asDoctorUncheckedCreate({
+      departmentId: body.departmentId,
+      email: body.email,
+      passwordHash,
+      name: body.name,
+      specialization: body.specialization ?? null,
+      experience,
+      qualification,
+      imageUrl,
+      active: body.active ?? true,
+    }),
+    include: {
+      department: { select: { id: true, name: true } },
+    },
   });
 }
 
@@ -137,30 +146,14 @@ export async function updateDoctor(
   id: string,
   body: z.infer<typeof updateDoctorSchema>
 ) {
-  const existing = await app.prisma.doctor.findUnique({
-    where: { id },
-    include: { user: { select: { id: true, email: true } } },
-  });
+  const existing = await app.prisma.doctor.findUnique({ where: { id } });
   if (!existing) throw new AppError(404, "Doctor not found", "NOT_FOUND");
 
   const { email, password, imageUrl, experience, qualification, name, departmentId, specialization, active } =
     body;
 
   if (email) {
-    const emailOwner = await app.prisma.user.findUnique({ where: { email } });
-    if (emailOwner && emailOwner.id !== existing.userId) {
-      throw new AppError(409, "Email already registered", "EMAIL_TAKEN");
-    }
-  }
-
-  if ((email || password) && !existing.userId) {
-    if (!email || !password) {
-      throw new AppError(
-        400,
-        "Email and password are both required to create a login for this doctor",
-        "LOGIN_REQUIRED"
-      );
-    }
+    await assertEmailAvailable(app, email, { doctorId: id });
   }
 
   if (departmentId) {
@@ -169,52 +162,25 @@ export async function updateDoctor(
   }
 
   try {
-    return await app.prisma.$transaction(async (tx) => {
-      let linkedUserId = existing.userId;
+    const patch: Record<string, unknown> = {};
+    if (departmentId !== undefined) patch.departmentId = departmentId;
+    if (email !== undefined) patch.email = email;
+    if (password) patch.passwordHash = await bcrypt.hash(password, 10);
+    if (name !== undefined) patch.name = name;
+    if (specialization !== undefined) patch.specialization = specialization;
+    if (active !== undefined) patch.active = active;
+    if (imageUrl !== undefined) patch.imageUrl = imageUrl.length > 0 ? imageUrl : null;
+    if (experience !== undefined) patch.experience = experience.length > 0 ? experience : null;
+    if (qualification !== undefined) {
+      patch.qualification = qualification.length > 0 ? qualification : null;
+    }
 
-      if (!linkedUserId && email && password) {
-        const passwordHash = await bcrypt.hash(password, 10);
-        const user = await tx.user.create({
-          data: {
-            email,
-            passwordHash,
-            name: name ?? existing.name,
-            role: DOCTOR_ROLE,
-          },
-        });
-        linkedUserId = user.id;
-      } else if (linkedUserId) {
-        const userData: Prisma.UserUpdateInput = {};
-        if (email) userData.email = email;
-        if (password) userData.passwordHash = await bcrypt.hash(password, 10);
-        if (name) userData.name = name;
-        if (Object.keys(userData).length > 0) {
-          await tx.user.update({ where: { id: linkedUserId }, data: userData });
-        }
-      }
-
-      const data: Prisma.DoctorUpdateInput = {};
-      if (departmentId !== undefined) data.department = { connect: { id: departmentId } };
-      if (name !== undefined) data.name = name;
-      if (specialization !== undefined) data.specialization = specialization;
-      if (active !== undefined) data.active = active;
-      if (imageUrl !== undefined) data.imageUrl = imageUrl.length > 0 ? imageUrl : null;
-      if (experience !== undefined) data.experience = experience.length > 0 ? experience : null;
-      if (qualification !== undefined) {
-        data.qualification = qualification.length > 0 ? qualification : null;
-      }
-      if (linkedUserId && linkedUserId !== existing.userId) {
-        data.user = { connect: { id: linkedUserId } };
-      }
-
-      return tx.doctor.update({
-        where: { id },
-        data,
-        include: {
-          department: { select: { id: true, name: true } },
-          user: { select: { id: true, email: true } },
-        },
-      });
+    return await app.prisma.doctor.update({
+      where: { id },
+      data: asDoctorUncheckedUpdate(patch),
+      include: {
+        department: { select: { id: true, name: true } },
+      },
     });
   } catch (err) {
     if (err instanceof AppError) throw err;
@@ -267,9 +233,13 @@ export async function patchAvailability(app: FastifyInstance, id: string, body: 
     throw new AppError(400, "End time must be after start time", "INVALID_RANGE");
   }
 
-  const updated = await app.prisma.availability.update({
-    where: { id },
-    data: { startTime, endTime },
+  const updated = await app.prisma.$transaction(async (tx) => {
+    const availability = await tx.availability.update({
+      where: { id },
+      data: { startTime, endTime },
+    });
+    await syncSessionTimeRange(tx, row.doctorId, row.date);
+    return availability;
   });
   await syncScheduleNoticesForDoctorDate(app, row.doctorId, row.date);
   return updated;
@@ -279,7 +249,10 @@ export async function deleteAvailability(app: FastifyInstance, id: string) {
   const row = await app.prisma.availability.findUnique({ where: { id } });
   if (!row) throw new AppError(404, "Availability not found", "NOT_FOUND");
   const { doctorId, date } = row;
-  await app.prisma.availability.delete({ where: { id } });
+  await app.prisma.$transaction(async (tx) => {
+    await tx.availability.delete({ where: { id } });
+    await syncSessionTimeRange(tx, doctorId, date);
+  });
   await syncScheduleNoticesForDoctorDate(app, doctorId, date);
 }
 
@@ -352,18 +325,228 @@ export async function listAppointmentsAdmin(
 }
 
 export async function createUserAsSuper(app: FastifyInstance, body: z.infer<typeof createStaffUserSchema>) {
-  const existing = await app.prisma.user.findUnique({ where: { email: body.email } });
-  if (existing) throw new AppError(409, "Email already registered", "EMAIL_TAKEN");
+  await assertEmailAvailable(app, body.email);
   const passwordHash = await bcrypt.hash(body.password, 10);
-  return app.prisma.user.create({
-    data: {
-      email: body.email,
-      passwordHash,
-      name: body.name,
-      role: body.role,
-    },
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
+  const admin = asAdminRow(
+    await adminDb(app.prisma).create({
+      data: asAdminCreateInput({
+        email: body.email,
+        passwordHash,
+        name: body.name,
+        role: AdminRole.ADMIN,
+      }),
+    })
+  );
+  return {
+    id: admin.id,
+    email: admin.email,
+    name: admin.name,
+    role: adminRoleToJwt(admin.role),
+    createdAt: admin.createdAt,
+  };
+}
+
+const PENDING_APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.BOOKED,
+  AppointmentStatus.WAITING,
+  AppointmentStatus.CHECKED_IN,
+];
+
+const COMPLETED_APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.COMPLETED,
+  AppointmentStatus.CANCELLED,
+  AppointmentStatus.SKIPPED,
+];
+
+
+export type AdminPatientListRow = {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  role: string;
+  createdAt: string;
+  displayStatus: string;
+  appointmentId: string | null;
+  token: string | null;
+  scheduledAt: string | null;
+  doctorName: string | null;
+  departmentName: string | null;
+};
+
+function buildPatientSearchWhere(search?: string): Prisma.UserWhereInput | undefined {
+  if (!search?.trim()) return undefined;
+  const term = search.trim();
+  return asUserWhereInput({
+    OR: [
+      { name: { contains: term, mode: "insensitive" } },
+      { email: { contains: term, mode: "insensitive" } },
+      { phone: { contains: term, mode: "insensitive" } },
+    ],
   });
+}
+
+function buildPatientStatusWhere(
+  filter: "all" | "pending" | "completed",
+  appointmentDate?: Date
+): Prisma.UserWhereInput | undefined {
+  if (filter === "all") return undefined;
+
+  const apptScope = appointmentDate ? { date: appointmentDate } : {};
+
+  if (filter === "pending") {
+    return {
+      OR: [
+        { appointments: { none: {} } },
+        {
+          appointments: {
+            some: {
+              ...apptScope,
+              status: { in: PENDING_APPOINTMENT_STATUSES },
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  return {
+    appointments: {
+      some: {
+        ...apptScope,
+        status: { in: COMPLETED_APPOINTMENT_STATUSES },
+      },
+    },
+  };
+}
+
+function mapUserToPatientRow(
+  u: PatientPublicRow,
+  latest?: {
+    id: string;
+    status: AppointmentStatus;
+    tokenNumber: number;
+    scheduledAt: Date;
+    doctor: { name: string; department: { name: string } };
+  }
+): AdminPatientListRow {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    phone: u.phone,
+    role: Role.USER,
+    createdAt: u.createdAt.toISOString(),
+    displayStatus: latest ? latest.status : "NOT_BOOKED",
+    appointmentId: latest?.id ?? null,
+    token: latest ? formatTokenDisplay(latest.tokenNumber) : null,
+    scheduledAt: latest?.scheduledAt.toISOString() ?? null,
+    doctorName: latest?.doctor.name ?? null,
+    departmentName: latest?.doctor.department.name ?? null,
+  };
+}
+
+export async function listPatientsAdmin(
+  app: FastifyInstance,
+  q: z.infer<typeof adminPatientListQuerySchema>
+) {
+  const { skip, take } = skipTake(q);
+  const searchWhere = buildPatientSearchWhere(q.search);
+
+  if (!q.date) {
+    const where: Prisma.UserWhereInput = {
+      ...(searchWhere ?? {}),
+      ...(buildPatientStatusWhere(q.filter) ?? {}),
+    };
+
+    const [total, users] = await Promise.all([
+      app.prisma.user.count({ where }),
+      app.prisma.user.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take,
+        select: {
+          ...asUserSelect(patientListSelect),
+          appointments: {
+            orderBy: { scheduledAt: "desc" },
+            take: 1,
+            include: {
+              doctor: { select: { name: true, department: { select: { name: true } } } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const patients = users.map((u) =>
+      mapUserToPatientRow(asPatientPublicRow(u), u.appointments[0])
+    );
+
+    return {
+      page: q.page,
+      pageSize: q.pageSize,
+      total,
+      date: null,
+      filter: q.filter,
+      patients,
+    };
+  }
+
+  const date = dateOnlyUtc(q.date);
+  const rows: AdminPatientListRow[] = [];
+
+  const userScope: Prisma.UserWhereInput = {
+    ...(searchWhere ?? {}),
+  };
+
+  const appointmentWhere: Prisma.AppointmentWhereInput = {
+    date,
+    user: userScope,
+    ...(q.filter === "pending"
+      ? { status: { in: PENDING_APPOINTMENT_STATUSES } }
+      : q.filter === "completed"
+        ? { status: { in: COMPLETED_APPOINTMENT_STATUSES } }
+        : {}),
+  };
+
+  const appointments = await app.prisma.appointment.findMany({
+    where: appointmentWhere,
+    orderBy: [{ tokenNumber: "asc" }, { scheduledAt: "asc" }],
+    include: {
+      user: { select: asUserSelect(patientListSelect) },
+      doctor: {
+        select: {
+          name: true,
+          department: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  for (const a of appointments) {
+    rows.push(
+      mapUserToPatientRow(asPatientPublicRow(a.user), {
+        id: a.id,
+        status: a.status,
+        tokenNumber: a.tokenNumber,
+        scheduledAt: a.scheduledAt,
+        doctor: a.doctor,
+      })
+    );
+  }
+
+  const total = rows.length;
+  const patients = rows.slice(skip, skip + take);
+
+  return {
+    page: q.page,
+    pageSize: q.pageSize,
+    total,
+    date: q.date,
+    filter: q.filter,
+    patients,
+  };
 }
 
 export async function listRegisteredPatients(
@@ -371,26 +554,29 @@ export async function listRegisteredPatients(
   q: z.infer<typeof adminUserListQuerySchema>
 ) {
   const { skip, take } = skipTake(q);
-  const where = { role: Role.USER };
   const [total, users] = await Promise.all([
-    app.prisma.user.count({ where }),
+    app.prisma.user.count(),
     app.prisma.user.findMany({
-      where,
       orderBy: { createdAt: "desc" },
       skip,
       take,
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
+      select: asUserSelect(patientListSelect),
     }),
   ]);
-  return { page: q.page, pageSize: q.pageSize, total, users };
+  return {
+    page: q.page,
+    pageSize: q.pageSize,
+    total,
+    users: users.map((u) => ({ ...u, role: Role.USER })),
+  };
 }
 
 export async function listAdminStaff(app: FastifyInstance, q: z.infer<typeof adminUserListQuerySchema>) {
   const { skip, take } = skipTake(q);
-  const where = { role: Role.ADMIN };
-  const [total, users] = await Promise.all([
-    app.prisma.user.count({ where }),
-    app.prisma.user.findMany({
+  const where = { role: AdminRole.ADMIN };
+  const [total, rowsRaw] = await Promise.all([
+    adminDb(app.prisma).count({ where }),
+    adminDb(app.prisma).findMany({
       where,
       orderBy: { createdAt: "desc" },
       skip,
@@ -398,40 +584,81 @@ export async function listAdminStaff(app: FastifyInstance, q: z.infer<typeof adm
       select: { id: true, email: true, name: true, role: true, createdAt: true },
     }),
   ]);
-  return { page: q.page, pageSize: q.pageSize, total, users };
+  const rows = rowsRaw as AdminListRow[];
+  return {
+    page: q.page,
+    pageSize: q.pageSize,
+    total,
+    users: rows.map((a) => ({
+      id: a.id,
+      email: a.email,
+      name: a.name,
+      role: adminRoleToJwt(a.role),
+      createdAt: a.createdAt,
+    })),
+  };
 }
 
 export async function patchUserAsSuper(
   app: FastifyInstance,
-  userId: string,
+  accountId: string,
   body: z.infer<typeof patchSuperUserSchema>
 ) {
-  const existing = await app.prisma.user.findUnique({ where: { id: userId } });
-  if (!existing) throw new AppError(404, "User not found", "NOT_FOUND");
-  if (existing.role === Role.SUPER_ADMIN && body.role !== undefined) {
-    throw new AppError(400, "Super admin roles cannot be changed here", "FORBIDDEN");
+  const adminRaw = await adminDb(app.prisma).findUnique({ where: { id: accountId } });
+  if (adminRaw) {
+    const existing = asAdminRow(adminRaw);
+    if (existing.role === AdminRole.SUPER_ADMIN && body.role !== undefined) {
+      throw new AppError(400, "Super admin roles cannot be changed here", "FORBIDDEN");
+    }
+    const patch: Record<string, unknown> = {};
+    if (body.name !== undefined) patch.name = body.name;
+    if (body.role !== undefined) {
+      patch.role = body.role === Role.SUPER_ADMIN ? AdminRole.SUPER_ADMIN : AdminRole.ADMIN;
+    }
+    const updated = asAdminRow(
+      await adminDb(app.prisma).update({
+        where: { id: accountId },
+        data: asAdminUpdateInput(patch),
+      })
+    );
+    return {
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      phone: null,
+      role: adminRoleToJwt(updated.role),
+      createdAt: updated.createdAt,
+    };
   }
-  try {
-    return await app.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.role !== undefined ? { role: body.role } : {}),
-      },
-      select: { id: true, email: true, name: true, role: true, createdAt: true },
-    });
-  } catch {
-    throw new AppError(404, "User not found", "NOT_FOUND");
-  }
+
+  const patient = await app.prisma.user.findUnique({ where: { id: accountId } });
+  if (!patient) throw new AppError(404, "User not found", "NOT_FOUND");
+
+  const patch: Record<string, unknown> = {};
+  if (body.name !== undefined) patch.name = body.name;
+  if (body.phone !== undefined) patch.phone = body.phone ?? null;
+  const updated = await app.prisma.user.update({
+    where: { id: accountId },
+    data: asUserUncheckedUpdate(patch),
+    select: asUserSelect(patientListSelect),
+  });
+  return { ...updated, role: Role.USER };
 }
 
-export async function deleteUserAsSuper(app: FastifyInstance, userId: string) {
-  const existing = await app.prisma.user.findUnique({ where: { id: userId } });
-  if (!existing) throw new AppError(404, "User not found", "NOT_FOUND");
-  if (existing.role === Role.SUPER_ADMIN) {
-    throw new AppError(400, "Super admin users cannot be deleted here", "FORBIDDEN");
+export async function deleteUserAsSuper(app: FastifyInstance, accountId: string) {
+  const adminRaw = await adminDb(app.prisma).findUnique({ where: { id: accountId } });
+  if (adminRaw) {
+    const existing = asAdminRow(adminRaw);
+    if (existing.role === AdminRole.SUPER_ADMIN) {
+      throw new AppError(400, "Super admin users cannot be deleted here", "FORBIDDEN");
+    }
+    await adminDb(app.prisma).delete({ where: { id: accountId } });
+    return { ok: true };
   }
 
-  await app.prisma.user.delete({ where: { id: userId } });
+  const patient = await app.prisma.user.findUnique({ where: { id: accountId } });
+  if (!patient) throw new AppError(404, "User not found", "NOT_FOUND");
+
+  await app.prisma.user.delete({ where: { id: accountId } });
   return { ok: true };
 }

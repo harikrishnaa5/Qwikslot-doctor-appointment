@@ -1,22 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
-// import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "../lib/toast";
 import { fetchDoctor, fetchSlots } from "../api/public";
-import { localTodayStr, formatSlotLabel } from "../lib/dates";
-import { Card, Skeleton } from "../components/ui";
+import { localTomorrowStr, formatSlotLabel } from "../lib/dates";
+import { Button, Card } from "../components/ui";
+import { DoctorDetailHeaderSkeleton, SlotGridSkeleton } from "../components/skeletons";
 import { DoctorAvatar } from "../components/DoctorAvatar";
-// import { useAppSelector } from "../store/hooks";
+import { useAppSelector } from "../store/hooks";
 import { CalendarDatePicker } from "../components/date-time";
 import { getSelectedDoctorId } from "../lib/selectedDoctor";
 
 export function DoctorDetailPage() {
   const doctorId = getSelectedDoctorId();
-  const today = localTodayStr();
-  const [date, setDate] = useState<string | null>(today);
+  const earliestBookable = localTomorrowStr();
+  const [date, setDate] = useState<string | null>(earliestBookable);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
-  // const nav = useNavigate();
-  // const user = useAppSelector((s) => s.auth.user);
+  const nav = useNavigate();
+  const user = useAppSelector((s) => s.auth.user);
 
   const docQ = useQuery({
     queryKey: ["doctor", doctorId],
@@ -43,7 +44,7 @@ export function DoctorDetailPage() {
     }
   }, [visibleSlots, selectedStart]);
 
-  // const doctorName = docQ.data?.name;
+  const doctorName = docQ.data?.name;
 
   if (!doctorId) {
     return (
@@ -55,7 +56,7 @@ export function DoctorDetailPage() {
 
   return (
     <div className="pb-4">
-      {docQ.isLoading && <Skeleton className="mb-4 h-24 w-full rounded-2xl" />}
+      {docQ.isLoading && <DoctorDetailHeaderSkeleton />}
       {docQ.data && (
         <div className="mb-6 flex gap-4 rounded-2xl border border-slate-200/90 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/80">
           <DoctorAvatar name={docQ.data.name} imageUrl={docQ.data.imageUrl} size="lg" className="rounded-2xl" />
@@ -80,7 +81,7 @@ export function DoctorDetailPage() {
       <CalendarDatePicker
         label="Date"
         value={date}
-        minDateIso={today}
+        minDateIso={earliestBookable}
         onChange={(next) => {
           setDate(next);
           setSelectedStart(null);
@@ -88,10 +89,13 @@ export function DoctorDetailPage() {
         className="mb-3"
       />
 
+      <p className="mb-2 text-sm text-slate-600 dark:text-slate-400">
+        Appointments must be booked at least one day in advance (not on the same day).
+      </p>
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Available slots
       </h2>
-      {slotsQ.isLoading && <Skeleton className="h-40 w-full" />}
+      {slotsQ.isLoading && <SlotGridSkeleton />}
       {!date && <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">Choose a date to view available slots.</p>}
       <ul className="mb-24 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {visibleSlots.map((s) => {
@@ -120,8 +124,7 @@ export function DoctorDetailPage() {
         })}
       </ul>
 
-      {/* Booking flow disabled — see App.tsx booking routes
-      <motion.div className="fixed bottom-[4.5rem] left-0 right-0 z-30 px-4 pb-[env(safe-area-inset-bottom)] md:static md:px-0 md:pb-0">
+      <div className="fixed bottom-[4.5rem] left-0 right-0 z-30 px-4 pb-[env(safe-area-inset-bottom)] md:static md:px-0 md:pb-0">
         <Button
           className="w-full shadow-lg md:max-w-xs"
           disabled={!selectedStart || !doctorId}
@@ -138,8 +141,7 @@ export function DoctorDetailPage() {
         >
           {user ? "Continue to payment" : "Sign in to book"}
         </Button>
-      </motion.div>
-      */}
+      </div>
     </div>
   );
 }

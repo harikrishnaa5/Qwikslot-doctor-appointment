@@ -1,9 +1,9 @@
 export type Role = "USER" | "DOCTOR" | "ADMIN" | "SUPER_ADMIN";
 
 export type AppointmentStatus =
+  | "BOOKED"
   | "WAITING"
   | "CHECKED_IN"
-  | "IN_PROGRESS"
   | "SKIPPED"
   | "COMPLETED"
   | "CANCELLED";
@@ -12,6 +12,7 @@ export type User = {
   id: string;
   email: string;
   name: string;
+  phone: string | null;
   role: Role;
   createdAt: string;
 };

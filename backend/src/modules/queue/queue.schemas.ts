@@ -11,7 +11,6 @@ export const createSessionSchema = z.object({
   label: z.string().min(1).max(64).optional(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
-  availabilityId: z.string().optional(),
   avgMinutesPerPatient: z.coerce.number().int().min(1).max(120).optional(),
 });
 

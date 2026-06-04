@@ -4,9 +4,10 @@ import { Link, useLocation } from "react-router-dom";
 import { toast } from "../lib/toast";
 import { dismissAppointmentScheduleNotice, fetchMyAppointment } from "../api/user";
 import { fetchDoctorQueue, type QueueSnapshot } from "../api/queue";
-import { Button, Card, PageHeader, Skeleton } from "../components/ui";
+import { Button, Card, PageHeader } from "../components/ui";
+import { TokenLiveSkeleton } from "../components/skeletons";
 import { formatAppointmentStatus } from "../lib/appointmentStatus";
-import { localTodayStr } from "../lib/dates";
+import { formatLocaleDateTime, localTodayStr } from "../lib/dates";
 
 function wsUrl() {
   const p = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -62,9 +63,15 @@ export function TokenLivePage() {
     setLive(queueQ.data ?? null);
   }, [queueQ.data]);
 
+  const snapshot = live ?? queueQ.data ?? null;
+  const myStatus = apptQ.data?.appointment.status;
+  const myToken = apptQ.data?.appointment.token;
+  const isBooked = myStatus === "BOOKED";
+  const queueStarted = snapshot?.queueStarted ?? false;
+
   useEffect(() => {
     const sid = sessionId ?? live?.sessionId;
-    if (!sid) return;
+    if (!sid || isBooked || !queueStarted) return;
 
     const ws = new WebSocket(wsUrl());
     ws.onopen = () => {
@@ -88,18 +95,15 @@ export function TokenLivePage() {
       }
     };
     return () => ws.close();
-  }, [sessionId, live?.sessionId, doctorId, qc]);
-
-  const snapshot = live ?? queueQ.data ?? null;
-  const myStatus = apptQ.data?.appointment.status;
-  const myToken = apptQ.data?.appointment.token;
+  }, [sessionId, live?.sessionId, doctorId, qc, isBooked, queueStarted]);
 
   const isCompleted = myStatus === "COMPLETED";
   const doctorName = apptQ.data?.appointment.doctorName;
 
   const isYourTurn = useMemo(() => {
+    if (!queueStarted) return false;
     if (isCompleted) return false;
-    if (myStatus === "IN_PROGRESS") return true;
+    if (myStatus === "CHECKED_IN" && snapshot?.current?.appointmentId === appointmentId) return true;
     if (snapshot?.current?.appointmentId === appointmentId) return true;
     if (
       myToken &&
@@ -109,8 +113,10 @@ export function TokenLivePage() {
       return true;
     }
     const mine = snapshot?.appointments.find((a) => a.id === appointmentId);
-    return mine?.status === "IN_PROGRESS";
-  }, [isCompleted, myStatus, myToken, appointmentId, snapshot]);
+    return (
+      mine?.status === "CHECKED_IN" && snapshot?.current?.appointmentId === appointmentId
+    );
+  }, [isCompleted, myStatus, myToken, appointmentId, snapshot, queueStarted]);
 
   if (!appointmentId || !doctorId) {
     return (
@@ -126,7 +132,7 @@ export function TokenLivePage() {
   return (
     <div>
       <PageHeader title="Live queue" />
-      {apptQ.isLoading && <Skeleton className="mb-4 h-24 w-full" />}
+      {apptQ.isLoading && <TokenLiveSkeleton />}
       {apptQ.data && (
         <Card className="mb-4">
           {apptQ.data.appointment.scheduleNotice ? (
@@ -150,7 +156,25 @@ export function TokenLivePage() {
           <p className="font-mono text-xl font-semibold text-teal-800 dark:text-teal-300">
             {apptQ.data.appointment.token}
           </p>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          <dl className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-sm dark:border-slate-800">
+            <div>
+              <dt className="text-xs font-medium uppercase text-slate-500">Appointment</dt>
+              <dd className="text-slate-800 dark:text-slate-200">
+                {formatLocaleDateTime(apptQ.data.appointment.scheduledAt)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase text-slate-500">Booked on</dt>
+              <dd className="text-slate-800 dark:text-slate-200">
+                {formatLocaleDateTime(apptQ.data.appointment.createdAt)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase text-slate-500">Doctor</dt>
+              <dd className="text-slate-800 dark:text-slate-200">{apptQ.data.appointment.doctorName}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             {apptQ.data.appointment.session?.label ?? "Clinic session"}
           </p>
           {isCompleted ? (
@@ -166,7 +190,34 @@ export function TokenLivePage() {
       )}
 
       <Card>
-        {isCompleted ? (
+        {myStatus === "CANCELLED" ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-6 text-center dark:border-rose-800/80 dark:bg-rose-950/40">
+            <p className="text-lg font-semibold text-rose-900 dark:text-rose-100">Appointment cancelled</p>
+            <p className="mt-2 text-sm text-rose-800/90 dark:text-rose-200/90">
+              This appointment was not seen before clinic hours ended, or was cancelled by the clinic.
+            </p>
+          </div>
+        ) : isBooked || !queueStarted ? (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-6 text-center dark:border-sky-800/80 dark:bg-sky-950/40">
+            <p className="text-lg font-semibold text-sky-900 dark:text-sky-100">
+              {snapshot?.sessionPhase === "before_day"
+                ? "Appointment confirmed"
+                : snapshot?.sessionPhase === "before_start"
+                  ? "Clinic not open yet"
+                  : "Live queue not open yet"}
+            </p>
+            <p className="mt-2 text-sm text-sky-800/90 dark:text-sky-200/90">
+              {snapshot?.sessionPhase === "before_day"
+                ? "Your token is reserved. The live queue opens automatically on your appointment day when clinic hours begin."
+                : snapshot?.sessionPhase === "before_start"
+                  ? "The live queue will open automatically when today’s clinic hours start."
+                  : "Waiting for the clinic queue to open."}
+            </p>
+            <p className="mt-3 font-mono text-sm font-semibold text-sky-900 dark:text-sky-100">
+              Token {myToken ?? "—"}
+            </p>
+          </div>
+        ) : isCompleted ? (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center dark:border-slate-700 dark:bg-slate-800/50">
             <p className="text-lg font-semibold text-slate-900 dark:text-slate-50">
               Completed your consultation

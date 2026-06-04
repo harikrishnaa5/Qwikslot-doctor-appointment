@@ -74,6 +74,22 @@ export async function patchSession(request: FastifyRequest, reply: FastifyReply)
     const { sessionId } = request.params as { sessionId: string };
     const body = patchSessionSchema.parse(request.body);
     const session = await sessionService.patchDoctorSession(request.server, sessionId, body);
+    if (body.status === "OPEN") {
+      const { emitSessionQueue } = await import("./queue.realtime.js");
+      await emitSessionQueue(request.server, sessionId);
+    }
+    return reply.send({ session });
+  } catch (err) {
+    return sendError(reply, err);
+  }
+}
+
+export async function startConsultation(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const { sessionId } = request.params as { sessionId: string };
+    const session = await sessionService.activateConsultationQueue(request.server, sessionId);
+    const { emitSessionQueue } = await import("./queue.realtime.js");
+    await emitSessionQueue(request.server, sessionId);
     return reply.send({ session });
   } catch (err) {
     return sendError(reply, err);

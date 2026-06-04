@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppointmentStatus, Role } from "@prisma/client";
+import { optionalPhoneSchema } from "../../lib/phone.js";
 import { paginationQuerySchema } from "../../lib/pagination.js";
 
 export const createDepartmentSchema = z.object({
@@ -44,6 +45,17 @@ export const updateDoctorSchema = z.object({
 
 export const adminUserListQuerySchema = paginationQuerySchema;
 
+export const adminPatientListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(15),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  filter: z.enum(["all", "pending", "completed"]).default("all"),
+  search: z.string().trim().max(120).optional(),
+});
+
 export const adminResourceListQuerySchema = paginationQuerySchema;
 
 export const upsertAvailabilitySchema = z.object({
@@ -74,14 +86,14 @@ export const createStaffUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
   name: z.string().min(1).max(120),
-  role: z.enum([Role.ADMIN, Role.USER]),
 });
 
 export const patchSuperUserSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
-    role: z.enum([Role.USER, Role.ADMIN]).optional(),
+    phone: optionalPhoneSchema,
+    role: z.enum([Role.ADMIN, Role.SUPER_ADMIN]).optional(),
   })
-  .refine((d) => d.name !== undefined || d.role !== undefined, {
-    message: "At least one of name or role is required",
+  .refine((d) => d.name !== undefined || d.role !== undefined || d.phone !== undefined, {
+    message: "At least one of name, phone, or role is required",
   });

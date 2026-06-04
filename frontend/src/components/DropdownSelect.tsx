@@ -20,6 +20,13 @@ type DropdownSelectProps = {
   searchable?: boolean;
 };
 
+const optionsPanelClass = clsx(
+  "z-[120] max-h-64 w-[var(--button-width)] min-w-[var(--button-width)] overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg ring-1 ring-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:ring-white/10",
+  "origin-top transition duration-150 ease-out will-change-[opacity,transform]",
+  "data-closed:scale-[0.98] data-closed:opacity-0",
+  "data-[anchor~=top]:origin-bottom"
+);
+
 export function DropdownSelect({
   value,
   onChange,
@@ -44,13 +51,25 @@ export function DropdownSelect({
 
   return (
     <Listbox value={value} onChange={onChange}>
-      <div className={clsx("relative", className)}>
+      <div className={clsx("relative isolate", className)}>
         <div className="relative">
-          <ListboxButton className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-16 text-left text-[13px] leading-5 shadow-sm sm:py-2.5 sm:text-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          <ListboxButton
+            className={clsx(
+              "group w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 pr-16 text-left text-sm shadow-sm outline-none",
+              "transition-[box-shadow,border-color] duration-150",
+              "focus-visible:ring-2 focus-visible:ring-teal-500/40",
+              "data-open:border-teal-400 data-open:ring-2 data-open:ring-teal-500/30",
+              "dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100",
+              "dark:data-open:border-teal-600 dark:data-open:ring-teal-500/25"
+            )}
+          >
             <span className={selected ? "text-slate-900 dark:text-slate-100" : "text-slate-400 dark:text-slate-500"}>
               {selected?.label ?? placeholder}
             </span>
-            <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <ChevronsUpDown
+              className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-transform duration-150 group-data-open:rotate-180"
+              aria-hidden
+            />
           </ListboxButton>
           {clearable && value ? (
             <button
@@ -68,8 +87,11 @@ export function DropdownSelect({
           ) : null}
         </div>
         <ListboxOptions
-          anchor={{ to: "bottom start", gap: 6 }}
-          className="z-[120] max-h-64 w-[var(--button-width)] overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl [--anchor-padding:8px] dark:border-slate-700 dark:bg-slate-900"
+          modal={false}
+          portal
+          transition
+          anchor={{ to: "bottom start", gap: 6, padding: 8 }}
+          className={optionsPanelClass}
         >
           {searchable ? (
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white p-1.5 dark:border-slate-700 dark:bg-slate-900">
@@ -105,7 +127,7 @@ export function DropdownSelect({
               {({ selected: isSelected }) => (
                 <>
                   <span>{opt.label}</span>
-                  <Check className={clsx("h-4 w-4", !isSelected && "invisible")} />
+                  <Check className={clsx("h-4 w-4 shrink-0", !isSelected && "invisible")} />
                 </>
               )}
             </ListboxOption>

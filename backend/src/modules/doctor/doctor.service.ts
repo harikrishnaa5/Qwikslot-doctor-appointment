@@ -1,40 +1,36 @@
 import type { FastifyInstance } from "fastify";
-import type { AppointmentStatus, Prisma } from "@prisma/client";
+import type { AppointmentStatus } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { AppError } from "../../lib/errors.js";
+import { assertEmailAvailable } from "../../lib/account.js";
+import {
+  appointmentPatientSelect,
+  asDoctorProfileRow,
+  asDoctorUncheckedUpdate,
+  asUserSelect,
+} from "../../lib/prisma-bridge.js";
 import { dateOnlyUtc } from "../../lib/time.js";
 import { formatTokenDisplay } from "../../lib/tokens.js";
 import { updateAppointmentStatus } from "../appointments/appointments.service.js";
 import type { updateDoctorProfileSchema } from "./doctor.schemas.js";
 import type { z } from "zod";
 
-function toDoctorProfileDto(
-  doctor: {
-    id: string;
-    name: string;
-    specialization: string | null;
-    experience: string | null;
-    qualification: string | null;
-    imageUrl: string | null;
-    department: { id: string; name: string };
-    user: { email: string } | null;
-  }
-) {
+function toDoctorProfileDto(doctor: ReturnType<typeof asDoctorProfileRow>) {
   return {
     id: doctor.id,
     name: doctor.name,
+    email: doctor.email,
     specialization: doctor.specialization,
     experience: doctor.experience,
     qualification: doctor.qualification,
     imageUrl: doctor.imageUrl,
     department: doctor.department,
-    email: doctor.user?.email ?? null,
   };
 }
 
-export async function getDoctorIdForUser(app: FastifyInstance, userId: string): Promise<string> {
+export async function getDoctorIdForAccount(app: FastifyInstance, doctorId: string): Promise<string> {
   const doctor = await app.prisma.doctor.findUnique({
-    where: { userId },
+    where: { id: doctorId },
     select: { id: true, active: true },
   });
   if (!doctor) throw new AppError(403, "Doctor profile not found", "NOT_DOCTOR");
@@ -42,91 +38,84 @@ export async function getDoctorIdForUser(app: FastifyInstance, userId: string): 
   return doctor.id;
 }
 
-export async function getDoctorProfile(app: FastifyInstance, userId: string) {
+export async function getDoctorProfile(app: FastifyInstance, doctorId: string) {
   const doctor = await app.prisma.doctor.findUnique({
-    where: { userId },
+    where: { id: doctorId },
     include: {
       department: { select: { id: true, name: true } },
-      user: { select: { id: true, email: true, name: true } },
     },
   });
   if (!doctor) throw new AppError(403, "Doctor profile not found", "NOT_DOCTOR");
-  return toDoctorProfileDto(doctor);
+  return toDoctorProfileDto(asDoctorProfileRow(doctor));
 }
 
 export async function updateDoctorProfile(
   app: FastifyInstance,
-  userId: string,
+  doctorId: string,
   body: z.infer<typeof updateDoctorProfileSchema>
 ) {
   const existing = await app.prisma.doctor.findUnique({
-    where: { userId },
+    where: { id: doctorId },
     include: {
       department: { select: { id: true, name: true } },
-      user: { select: { id: true, email: true } },
     },
   });
   if (!existing) throw new AppError(403, "Doctor profile not found", "NOT_DOCTOR");
-  await getDoctorIdForUser(app, userId);
+  await getDoctorIdForAccount(app, doctorId);
 
-  if (body.email && existing.user) {
-    const emailOwner = await app.prisma.user.findUnique({ where: { email: body.email } });
-    if (emailOwner && emailOwner.id !== existing.user.id) {
-      throw new AppError(409, "Email already registered", "EMAIL_TAKEN");
-    }
+  if (body.email) {
+    await assertEmailAvailable(app, body.email, { doctorId });
   }
 
-  return app.prisma.$transaction(async (tx) => {
-    if (existing.user) {
-      const userData: Prisma.UserUpdateInput = {};
-      if (body.email) userData.email = body.email;
-      if (body.password) userData.passwordHash = await bcrypt.hash(body.password, 10);
-      if (body.name) userData.name = body.name;
-      if (Object.keys(userData).length > 0) {
-        await tx.user.update({ where: { id: existing.user!.id }, data: userData });
-      }
-    }
+  const patch: Record<string, unknown> = {};
+  if (body.email) patch.email = body.email;
+  if (body.password) patch.passwordHash = await bcrypt.hash(body.password, 10);
+  if (body.name !== undefined) patch.name = body.name;
+  if (body.specialization !== undefined) patch.specialization = body.specialization || null;
+  if (body.experience !== undefined) patch.experience = body.experience.length > 0 ? body.experience : null;
+  if (body.qualification !== undefined) {
+    patch.qualification = body.qualification.length > 0 ? body.qualification : null;
+  }
+  if (body.imageUrl !== undefined) patch.imageUrl = body.imageUrl.length > 0 ? body.imageUrl : null;
 
-    const data: Prisma.DoctorUpdateInput = {};
-    if (body.name !== undefined) data.name = body.name;
-    if (body.specialization !== undefined) data.specialization = body.specialization || null;
-    if (body.experience !== undefined) data.experience = body.experience.length > 0 ? body.experience : null;
-    if (body.qualification !== undefined) {
-      data.qualification = body.qualification.length > 0 ? body.qualification : null;
-    }
-    if (body.imageUrl !== undefined) data.imageUrl = body.imageUrl.length > 0 ? body.imageUrl : null;
-
-    const updated = await tx.doctor.update({
-      where: { id: existing.id },
-      data,
-      include: {
-        department: { select: { id: true, name: true } },
-        user: { select: { id: true, email: true, name: true } },
-      },
-    });
-    return toDoctorProfileDto(updated);
+  const updated = await app.prisma.doctor.update({
+    where: { id: doctorId },
+    data: asDoctorUncheckedUpdate(patch),
+    include: {
+      department: { select: { id: true, name: true } },
+    },
   });
+  return toDoctorProfileDto(asDoctorProfileRow(updated));
 }
 
 export async function listDoctorAppointments(
   app: FastifyInstance,
-  userId: string,
+  doctorId: string,
   dateStr: string
 ) {
-  const doctorId = await getDoctorIdForUser(app, userId);
+  await getDoctorIdForAccount(app, doctorId);
   const rows = await app.prisma.appointment.findMany({
     where: { doctorId, date: dateOnlyUtc(dateStr) },
     orderBy: { tokenNumber: "asc" },
     include: {
-      user: { select: { id: true, name: true, email: true } },
+      user: { select: asUserSelect(appointmentPatientSelect) },
     },
   });
 
+  type ApptRow = (typeof rows)[number] & {
+    user: { id: string; name: string; email: string; phone: string | null };
+  };
+
   return {
     date: dateStr,
-    appointments: rows.map((a) => ({
+    appointments: (rows as ApptRow[]).map((a) => ({
       id: a.id,
-      patient: { id: a.user.id, name: a.user.name, email: a.user.email },
+      patient: {
+        id: a.user.id,
+        name: a.user.name,
+        email: a.user.email,
+        phone: a.user.phone,
+      },
       scheduledAt: a.scheduledAt.toISOString(),
       status: a.status,
       token: formatTokenDisplay(a.tokenNumber),
@@ -136,11 +125,11 @@ export async function listDoctorAppointments(
 
 export async function updateDoctorAppointmentStatus(
   app: FastifyInstance,
-  userId: string,
+  doctorId: string,
   appointmentId: string,
   status: AppointmentStatus
 ) {
-  const doctorId = await getDoctorIdForUser(app, userId);
+  await getDoctorIdForAccount(app, doctorId);
   const existing = await app.prisma.appointment.findUnique({
     where: { id: appointmentId },
     select: { doctorId: true },

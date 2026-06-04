@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ChevronRight, Stethoscope } from "lucide-react";
 import { fetchDepartments } from "../api/public";
-import { Card, PageHeader, Skeleton } from "../components/ui";
+import { Card, PageHeader } from "../components/ui";
+import { DirectoryCardListSkeleton } from "../components/skeletons";
 import { departmentNameToSlug } from "../lib/departmentSlug";
 
 export function BrowsePage() {
@@ -14,13 +15,10 @@ export function BrowsePage() {
       <p className="mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
         Pick a specialty to browse doctors and see which appointment times are open.
       </p>
+      {q.isLoading ? (
+        <DirectoryCardListSkeleton count={6} tall className="grid grid-cols-2 gap-3 sm:gap-4" />
+      ) : (
       <ul className="grid grid-cols-2 gap-3 sm:gap-4">
-        {q.isLoading &&
-          Array.from({ length: 4 }).map((_, i) => (
-            <li key={i}>
-              <Skeleton className="h-36 w-full rounded-2xl sm:h-40" />
-            </li>
-          ))}
         {q.data?.map((d) => (
           <li key={d.id} className="min-w-0">
             <Link
@@ -53,6 +51,7 @@ export function BrowsePage() {
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 }

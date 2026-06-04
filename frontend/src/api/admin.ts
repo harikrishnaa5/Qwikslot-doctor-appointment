@@ -17,15 +17,27 @@ export type AdminDoctor = {
   imageUrl: string | null;
   active: boolean;
   department: { id: string; name: string };
-  user?: { id: string; email: string } | null;
+  email: string;
 };
 
 export type AdminUserRow = {
   id: string;
   email: string;
   name: string;
+  phone: string | null;
   role: string;
   createdAt: string;
+};
+
+export type AdminPatientFilter = "all" | "pending" | "completed";
+
+export type AdminPatientRow = AdminUserRow & {
+  displayStatus: string;
+  appointmentId: string | null;
+  token: string | null;
+  scheduledAt: string | null;
+  doctorName: string | null;
+  departmentName: string | null;
 };
 
 export async function adminListDepartments(params: URLSearchParams) {
@@ -108,9 +120,14 @@ export async function adminDeleteDoctor(id: string) {
 }
 
 export async function adminListRegisteredUsers(params: URLSearchParams) {
-  return apiFetch<{ users: AdminUserRow[]; total: number; page: number; pageSize: number }>(
-    `/api/v1/admin/users?${params.toString()}`
-  );
+  return apiFetch<{
+    patients: AdminPatientRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+    date: string | null;
+    filter: AdminPatientFilter;
+  }>(`/api/v1/admin/users?${params.toString()}`);
 }
 
 export type AdminAvailabilityRow = {
@@ -204,7 +221,6 @@ export async function superCreateUser(body: {
   email: string;
   password: string;
   name: string;
-  role: "ADMIN" | "USER";
 }) {
   return apiFetch<{ user: AdminUserRow }>("/api/v1/admin/super/users", {
     method: "POST",
@@ -212,7 +228,7 @@ export async function superCreateUser(body: {
   });
 }
 
-export async function superPatchUser(id: string, body: { name?: string; role?: string }) {
+export async function superPatchUser(id: string, body: { name?: string; phone?: string | null; role?: string }) {
   return apiFetch<{ user: AdminUserRow }>(`/api/v1/admin/super/users/${id}`, {
     method: "PATCH",
     body: JSON.stringify(body),

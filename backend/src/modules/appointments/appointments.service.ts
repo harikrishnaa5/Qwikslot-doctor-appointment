@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { AppointmentStatus } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { skipTake } from "../../lib/pagination.js";
+import { assertBookableAppointmentDate } from "../../lib/booking-rules.js";
 import { dateOnlyUtc, toDateOnlyIso } from "../../lib/time.js";
 import { formatTokenDisplay } from "../../lib/tokens.js";
 import * as mockPayment from "../payments/mock-payment.service.js";
@@ -29,6 +30,7 @@ export async function bookAppointment(
   }
 
   const dateStr = toDateOnlyIso(scheduledAt);
+  assertBookableAppointmentDate(dateStr);
   const { slots } = await doctorsService.getAvailableSlots(app, body.doctorId, dateStr);
   const slotOk = slots.some((s) => s.start === scheduledIso);
   if (!slotOk) throw new AppError(400, "Slot is no longer available", "SLOT_TAKEN");
@@ -53,7 +55,7 @@ export async function bookAppointment(
           scheduledAt,
           date,
           tokenNumber,
-          status: AppointmentStatus.WAITING,
+          status: AppointmentStatus.BOOKED,
           paymentRef: body.paymentRef,
           notes: body.notes,
         },
@@ -63,8 +65,6 @@ export async function bookAppointment(
         },
       });
     });
-
-    await realtime.emitSessionQueue(app, session.id);
 
     return {
       appointment: {
@@ -90,8 +90,9 @@ export async function bookAppointment(
 }
 
 const ACTIVE_APPOINTMENT_STATUSES = [
+  AppointmentStatus.BOOKED,
   AppointmentStatus.WAITING,
-  AppointmentStatus.IN_PROGRESS,
+  AppointmentStatus.CHECKED_IN,
 ] as const;
 
 export async function listMyAppointments(

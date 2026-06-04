@@ -25,7 +25,7 @@ export async function syncScheduleNoticesForDoctorDate(app: FastifyInstance, doc
       where: {
         doctorId,
         date: day,
-        status: { in: [AppointmentStatus.WAITING, AppointmentStatus.IN_PROGRESS] },
+        status: { in: [AppointmentStatus.WAITING, AppointmentStatus.CHECKED_IN] },
       },
       select: { id: true, scheduledAt: true },
     });

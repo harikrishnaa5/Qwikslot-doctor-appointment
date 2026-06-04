@@ -6,11 +6,12 @@ import { dismissAppointmentScheduleNotice, fetchMyAppointments } from "../api/us
 import type { AppointmentRow } from "../api/types";
 import { formatAppointmentStatus } from "../lib/appointmentStatus";
 import { formatSlotLabel } from "../lib/dates";
-import { Button, Card, PageHeader, Skeleton, TablePagination } from "../components/ui";
+import { Button, Card, PageHeader, TablePagination } from "../components/ui";
+import { UserBookingCardsSkeleton, UserBookingHistoryTableSkeleton } from "../components/skeletons";
 
 const HISTORY_PAGE_SIZE = 10;
 
-const ACTIVE_STATUSES = new Set(["WAITING", "IN_PROGRESS"]);
+const LIVE_QUEUE_STATUSES = new Set(["WAITING", "CHECKED_IN"]);
 
 function formatHistoryWhen(iso: string) {
   return new Date(iso).toLocaleString(undefined, {
@@ -23,6 +24,7 @@ function formatHistoryWhen(iso: string) {
 }
 
 function historyStatusClass(status: string) {
+  if (status === "BOOKED") return "bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300";
   if (status === "COMPLETED") return "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300";
   if (status === "CANCELLED") return "bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300";
   if (status === "SKIPPED") return "bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200";
@@ -147,7 +149,7 @@ function AppointmentCard({
           Token <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{a.token}</span>
         </p>
         <p className="text-xs font-medium text-slate-500">{formatAppointmentStatus(a.status)}</p>
-        {showLiveQueue && ACTIVE_STATUSES.has(a.status) ? (
+        {showLiveQueue && LIVE_QUEUE_STATUSES.has(a.status) ? (
           <Link
             className="mt-2 text-sm font-medium text-teal-700 dark:text-teal-400"
             to="/token"
@@ -238,15 +240,7 @@ export function BookingsPage() {
     <div>
       <PageHeader title="My bookings" />
 
-      {!showSections && (
-        <ul className="flex flex-col gap-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <li key={i}>
-              <Skeleton className="h-28 w-full" />
-            </li>
-          ))}
-        </ul>
-      )}
+      {!showSections && <UserBookingCardsSkeleton count={3} />}
 
       {showSections && (
         <div className="flex flex-col gap-8">
@@ -316,7 +310,7 @@ export function BookingsPage() {
                   dismissPending={dismissPending}
                 />
               ) : historyQ.isLoading ? (
-                <Skeleton className="h-36 w-full rounded-2xl" />
+                <UserBookingHistoryTableSkeleton />
               ) : null
             ) : (
               <Card>

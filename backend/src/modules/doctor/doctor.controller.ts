@@ -9,7 +9,7 @@ import {
 import * as doctorService from "./doctor.service.js";
 
 export async function me(request: FastifyRequest, reply: FastifyReply) {
-  const profile = await doctorService.getDoctorProfile(request.server, request.user.sub);
+  const profile = await doctorService.getDoctorProfile(request.server, request.user!.sub);
   return reply.send({ doctor: profile });
 }
 

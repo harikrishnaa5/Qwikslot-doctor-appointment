@@ -1,9 +1,8 @@
 /**
- * One-time backfill for existing databases before making Appointment.sessionId required.
+ * One-time backfill: one DoctorSession per doctor per day, link appointments.
  * Run: npx tsx prisma/scripts/backfill-sessions.ts
  */
 import { PrismaClient } from "@prisma/client";
-import { sessionLabelFromStartTime } from "../../src/lib/session-label.js";
 import { toDateOnlyIso } from "../../src/lib/time.js";
 
 const prisma = new PrismaClient();
@@ -26,50 +25,60 @@ function slotInRange(
 
 async function main() {
   const availabilities = await prisma.availability.findMany();
-  const sessionByAvail = new Map<string, string>();
+  const sessionByDoctorDate = new Map<string, string>();
 
   for (const a of availabilities) {
-    const dateStr = toDateOnlyIso(a.date);
-    let session = await prisma.doctorSession.findFirst({
-      where: {
-        doctorId: a.doctorId,
-        date: a.date,
-        startTime: a.startTime,
-        endTime: a.endTime,
-      },
+    const key = `${a.doctorId}:${toDateOnlyIso(a.date)}`;
+    if (sessionByDoctorDate.has(key)) continue;
+
+    let session = await prisma.doctorSession.findUnique({
+      where: { doctorId_date: { doctorId: a.doctorId, date: a.date } },
     });
     if (!session) {
+      const sameDay = availabilities.filter(
+        (x) => x.doctorId === a.doctorId && x.date.getTime() === a.date.getTime()
+      );
+      let startTime = sameDay[0]!.startTime;
+      let endTime = sameDay[0]!.endTime;
+      for (const row of sameDay) {
+        if (row.startTime < startTime) startTime = row.startTime;
+        if (row.endTime > endTime) endTime = row.endTime;
+      }
       session = await prisma.doctorSession.create({
         data: {
           doctorId: a.doctorId,
-          availabilityId: a.id,
           date: a.date,
-          label: sessionLabelFromStartTime(a.startTime),
-          startTime: a.startTime,
-          endTime: a.endTime,
+          label: "Clinic",
+          startTime,
+          endTime,
           status: "SCHEDULED",
         },
       });
     }
-    sessionByAvail.set(a.id, session.id);
+    sessionByDoctorDate.set(key, session.id);
   }
 
   const appointments = await prisma.appointment.findMany({
-    where: { sessionId: null as unknown as string },
-  }).catch(() => prisma.appointment.findMany());
+    where: { sessionId: null },
+  });
 
   for (const appt of appointments) {
     const dateStr = toDateOnlyIso(appt.date);
-    const avails = availabilities.filter(
-      (a) => a.doctorId === appt.doctorId && a.date.getTime() === appt.date.getTime()
-    );
-    const match = avails.find((a) => slotInRange(appt.scheduledAt, dateStr, a.startTime, a.endTime));
-    if (!match) {
-      console.warn("No availability for appointment", appt.id);
+    const key = `${appt.doctorId}:${dateStr}`;
+    const sessionId = sessionByDoctorDate.get(key);
+    if (!sessionId) {
+      const avails = availabilities.filter(
+        (a) => a.doctorId === appt.doctorId && a.date.getTime() === appt.date.getTime()
+      );
+      const match = avails.find((a) =>
+        slotInRange(appt.scheduledAt, dateStr, a.startTime, a.endTime)
+      );
+      if (!match) {
+        console.warn("No availability for appointment", appt.id);
+        continue;
+      }
       continue;
     }
-    const sessionId = sessionByAvail.get(match.id);
-    if (!sessionId) continue;
     await prisma.appointment.update({
       where: { id: appt.id },
       data: { sessionId },
@@ -89,8 +98,8 @@ async function main() {
 
 main()
   .then(() => prisma.$disconnect())
-  .catch((e) => {
+  .catch(async (e) => {
     console.error(e);
-    prisma.$disconnect();
-    process.exit(1);
+    await prisma.$disconnect();
+    throw e;
   });

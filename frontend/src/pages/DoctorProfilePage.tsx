@@ -9,8 +9,8 @@ import {
   ModalOverlay,
   ModalPanel,
   PageHeader,
-  Skeleton,
 } from "../components/ui";
+import { DoctorProfileSkeleton } from "../components/skeletons";
 import type { DoctorProfile } from "../api/doctor";
 import { doctorGetMe, doctorUpdateProfile, doctorUploadPhoto } from "../api/doctor";
 import { toast } from "../lib/toast";
@@ -144,12 +144,7 @@ export function DoctorProfilePage() {
     return (
       <div className="flex flex-col gap-4">
         <PageHeader title="Profile" />
-        <div className="flex flex-col items-center pt-6">
-          <Skeleton className="h-28 w-28 rounded-full" />
-          <Skeleton className="mt-4 h-6 w-40" />
-          <Skeleton className="mt-2 h-4 w-56" />
-        </div>
-        <Skeleton className="mt-4 h-48 w-full rounded-2xl" />
+        <DoctorProfileSkeleton />
       </div>
     );
   }
