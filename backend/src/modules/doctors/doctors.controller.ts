@@ -36,7 +36,8 @@ export async function getSlots(request: FastifyRequest, reply: FastifyReply) {
   try {
     const { id } = request.params as { id: string };
     const q = slotsQuerySchema.parse(request.query);
-    const result = await service.getAvailableSlots(request.server, id, q.date);
+    const userId = request.user?.role === "USER" ? request.user.sub : undefined;
+    const result = await service.getAvailableSlots(request.server, id, q.date, userId);
     return reply.send(result);
   } catch (err) {
     return sendError(reply, err);

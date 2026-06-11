@@ -20,8 +20,7 @@ export async function fetchDoctor(id: string) {
 
 export async function fetchSlots(doctorId: string, date: string) {
   const r = await apiFetch<{ date: string; slots: Slot[] }>(
-    `/api/v1/doctors/${doctorId}/slots?date=${encodeURIComponent(date)}`,
-    { token: null }
+    `/api/v1/doctors/${doctorId}/slots?date=${encodeURIComponent(date)}`
   );
   return r.slots;
 }

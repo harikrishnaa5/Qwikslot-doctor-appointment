@@ -97,6 +97,11 @@ export function DoctorDetailPage() {
       </h2>
       {slotsQ.isLoading && <SlotGridSkeleton />}
       {!date && <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">Choose a date to view available slots.</p>}
+      {date && !slotsQ.isLoading && user && visibleSlots.length === 0 && (
+        <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+          No slots available for this date. You may already have an appointment with this doctor on this day.
+        </p>
+      )}
       <ul className="mb-24 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {visibleSlots.map((s) => {
           const active = selectedStart === s.start;

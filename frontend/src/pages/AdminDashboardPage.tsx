@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MoreVertical } from "lucide-react";
 import { toast } from "../lib/toast";
@@ -35,6 +35,8 @@ import {
   ensureEndAfterStart,
   formatHm12Hour,
   localTodayStr,
+  localTomorrowStr,
+  localYesterdayStr,
   parseLocalDateTime,
 } from "../lib/dates";
 import {
@@ -127,7 +129,7 @@ export function AdminDashboardPage() {
       const p = new URLSearchParams({ page: "1", pageSize: String(OPTIONS_PAGE_SIZE) });
       return (await adminListDepartments(p)).departments;
     },
-    enabled: tab === "docs" || tab === "avail" || docModal !== null,
+    enabled: tab === "docs" || tab === "avail" || tab === "conhist" || docModal !== null,
     staleTime: 60_000,
   });
 
@@ -146,7 +148,7 @@ export function AdminDashboardPage() {
       const p = new URLSearchParams({ page: "1", pageSize: String(OPTIONS_PAGE_SIZE) });
       return (await adminListDoctors(p)).doctors;
     },
-    enabled: tab === "avail" || tab === "queue",
+    enabled: tab === "avail" || tab === "conhist" || tab === "queue",
   });
 
   const [apptDate, setApptDate] = useState<string | null>(null);
@@ -219,27 +221,74 @@ export function AdminDashboardPage() {
   const [docImageUrl, setDocImageUrl] = useState("");
   const [editingDoc, setEditingDoc] = useState<AdminDoctor | null>(null);
 
-  const [docId, setDocId] = useState("");
+  const [availDocId, setAvailDocId] = useState("");
+  const [conhistDocId, setConhistDocId] = useState("");
   const [availModalOpen, setAvailModalOpen] = useState(false);
   const [availEditingId, setAvailEditingId] = useState<string | null>(null);
   const [modalAvailDocId, setModalAvailDocId] = useState("");
   const [availDeleteTarget, setAvailDeleteTarget] = useState<AdminAvailabilityRow | null>(null);
 
+  const [availFilterDate, setAvailFilterDate] = useState<string | null>(null);
   const [availPage, setAvailPage] = useState(1);
   const availListQ = useQuery({
-    queryKey: ["admin-availabilities", docId, availPage],
+    queryKey: ["admin-availabilities", "future", availDocId, availFilterDate, availPage],
     queryFn: async () => {
-      const p = new URLSearchParams({ page: String(availPage), pageSize: String(TABLE_PAGE_SIZE) });
-      return adminListDoctorAvailabilities(docId, p);
+      const p = new URLSearchParams({
+        page: String(availPage),
+        pageSize: String(TABLE_PAGE_SIZE),
+        range: "future",
+      });
+      if (availFilterDate) p.set("date", availFilterDate);
+      return adminListDoctorAvailabilities(availDocId, p);
     },
-    enabled: tab === "avail" && Boolean(docId),
+    enabled: tab === "avail" && Boolean(availDocId),
+    gcTime: 0,
   });
+
+  const [conhistFilterDate, setConhistFilterDate] = useState<string | null>(null);
+  const [conhistPage, setConhistPage] = useState(1);
+  const conhistListQ = useQuery({
+    queryKey: ["admin-availabilities", "past", conhistDocId, conhistFilterDate, conhistPage],
+    queryFn: async () => {
+      const p = new URLSearchParams({
+        page: String(conhistPage),
+        pageSize: String(TABLE_PAGE_SIZE),
+        range: "past",
+      });
+      if (conhistFilterDate) p.set("date", conhistFilterDate);
+      return adminListDoctorAvailabilities(conhistDocId, p);
+    },
+    enabled: tab === "conhist" && Boolean(conhistDocId),
+    gcTime: 0,
+  });
+
+  const prevAvailConhistTabRef = useRef<Tab | null>(null);
+  useEffect(() => {
+    const prev = prevAvailConhistTabRef.current;
+    prevAvailConhistTabRef.current = tab;
+    const switchedAvailConhist =
+      (prev === "avail" && tab === "conhist") || (prev === "conhist" && tab === "avail");
+    if (!switchedAvailConhist) return;
+
+    setAvailDocId("");
+    setConhistDocId("");
+    setAvailFilterDate(null);
+    setConhistFilterDate(null);
+    setAvailPage(1);
+    setConhistPage(1);
+    qc.removeQueries({ queryKey: ["admin-availabilities", "future"] });
+    qc.removeQueries({ queryKey: ["admin-availabilities", "past"] });
+  }, [tab, qc]);
 
   useEffect(() => {
     setAvailPage(1);
-  }, [docId]);
+  }, [availDocId, availFilterDate]);
 
-  const [availDate, setAvailDate] = useState<string | null>(localTodayStr());
+  useEffect(() => {
+    setConhistPage(1);
+  }, [conhistDocId, conhistFilterDate]);
+
+  const [availDate, setAvailDate] = useState<string | null>(localTomorrowStr());
   const defaultAvailTimesSeed = useMemo(() => defaultAvailabilityStartEnd(), []);
   const [startT, setStartT] = useState(defaultAvailTimesSeed.start);
   const [endT, setEndT] = useState(defaultAvailTimesSeed.end);
@@ -472,8 +521,8 @@ export function AdminDashboardPage() {
       }),
     onSuccess: (_data, vars) => {
       toast.success("Availability saved");
-      setDocId(vars.doctorId);
-      qc.invalidateQueries({ queryKey: ["admin-availabilities", vars.doctorId] });
+      setAvailDocId(vars.doctorId);
+      qc.invalidateQueries({ queryKey: ["admin-availabilities", "future", vars.doctorId] });
       qc.invalidateQueries({ queryKey: ["slots"] });
       setAvailModalOpen(false);
       setAvailEditingId(null);
@@ -489,7 +538,7 @@ export function AdminDashboardPage() {
       }),
     onSuccess: () => {
       toast.success("Availability updated");
-      if (docId) qc.invalidateQueries({ queryKey: ["admin-availabilities", docId] });
+      if (availDocId) qc.invalidateQueries({ queryKey: ["admin-availabilities", "future", availDocId] });
       qc.invalidateQueries({ queryKey: ["slots"] });
       setAvailModalOpen(false);
       setAvailEditingId(null);
@@ -501,7 +550,7 @@ export function AdminDashboardPage() {
     mutationFn: (id: string) => adminDeleteAvailability(id),
     onSuccess: () => {
       toast.success("Availability removed");
-      if (docId) qc.invalidateQueries({ queryKey: ["admin-availabilities", docId] });
+      if (availDocId) qc.invalidateQueries({ queryKey: ["admin-availabilities", "future", availDocId] });
       qc.invalidateQueries({ queryKey: ["slots"] });
       qc.invalidateQueries({ queryKey: ["my-appointments"] });
       setAvailDeleteTarget(null);
@@ -628,8 +677,22 @@ export function AdminDashboardPage() {
     label: d.name,
   }));
   const departmentOptionsLoading = deptOptionsQ.isLoading || deptOptionsQ.isFetching;
-  const availRows = availListQ.data?.availabilities ?? [];
+  const availRows = tab === "avail" ? (availListQ.data?.availabilities ?? []) : [];
+  const conhistRows = tab === "conhist" ? (conhistListQ.data?.availabilities ?? []) : [];
+  const availTablePending = tab === "avail" && Boolean(availDocId) && availListQ.isPending;
+  const conhistTablePending = tab === "conhist" && Boolean(conhistDocId) && conhistListQ.isPending;
   const canManageUsers = role === "SUPER_ADMIN";
+
+  function formatAvailabilityDateLabel(dateIso: string) {
+    const ymd = dateIso.slice(0, 10);
+    const [y, mo, d] = ymd.split("-").map(Number);
+    return new Date(y, mo - 1, d).toLocaleDateString(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
 
   return (
     <div>
@@ -832,40 +895,47 @@ export function AdminDashboardPage() {
 
       {tab === "avail" && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0 max-w-md flex-1">
+          <Card className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-0 flex-1 sm:max-w-xs">
               <label className="mb-2 block text-sm">Doctor</label>
-              <DropdownSelect value={docId} onChange={setDocId} options={doctorOptions} />
+              <DropdownSelect value={availDocId} onChange={setAvailDocId} options={doctorOptions} />
+            </div>
+            <div className="min-w-0 flex-1 sm:max-w-xs">
+              <CalendarDatePicker
+                label="Filter by date"
+                value={availFilterDate}
+                minDateIso={localTomorrowStr()}
+                onChange={setAvailFilterDate}
+              />
             </div>
             <CreateButton
               type="button"
-              className="shrink-0"
+              className="shrink-0 sm:ml-auto"
               onClick={() => {
                 setAvailEditingId(null);
-                setModalAvailDocId("");
-                setAvailDate(localTodayStr());
+                setModalAvailDocId(availDocId);
+                setAvailDate(localTomorrowStr());
                 const d = defaultAvailabilityStartEnd();
                 setStartT(d.start);
                 setEndT(d.end);
                 setAvailModalOpen(true);
               }}
+              disabled={!availDocId}
             >
               Create availability
             </CreateButton>
-          </div>
+          </Card>
 
           <Card className="overflow-hidden p-0">
             <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Scheduled availability</p>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                All saved windows for the selected doctor (patients see bookable slots derived from these rows).
-              </p>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Upcoming availability</p>
+              
             </div>
-            {!docId ? (
+            {!availDocId ? (
               <p className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                 Select a doctor to list their availability.
               </p>
-            ) : availListQ.isLoading ? (
+            ) : availTablePending ? (
               <AdminAvailabilityTableSkeleton />
             ) : availListQ.isError ? (
               <p className="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">
@@ -886,13 +956,7 @@ export function AdminDashboardPage() {
                   <tbody>
                     {availRows.map((row, idx) => {
                       const ymd = row.date.slice(0, 10);
-                      const [y, mo, d] = ymd.split("-").map(Number);
-                      const dateLabel = new Date(y, mo - 1, d).toLocaleDateString(undefined, {
-                        weekday: "short",
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      });
+                      const dateLabel = formatAvailabilityDateLabel(row.date);
                       return (
                         <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
@@ -931,7 +995,9 @@ export function AdminDashboardPage() {
                     {!availRows.length && (
                       <tr>
                         <td colSpan={5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
-                          No availability saved for this doctor yet.
+                          {availFilterDate
+                            ? "No upcoming availability on this date."
+                            : "No upcoming availability for this doctor."}
                         </td>
                       </tr>
                     )}
@@ -939,12 +1005,102 @@ export function AdminDashboardPage() {
                 </table>
               </div>
             )}
-            {availListQ.data && docId ? (
+            {availListQ.data && availDocId && !availTablePending ? (
               <TablePagination
                 page={availPage}
                 pageSize={availListQ.data.pageSize}
                 total={availListQ.data.total}
                 onPageChange={setAvailPage}
+              />
+            ) : null}
+          </Card>
+        </div>
+      )}
+
+      {tab === "conhist" && (
+        <div className="flex flex-col gap-4">
+          <Card className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-0 flex-1 sm:max-w-xs">
+              <label className="mb-2 block text-sm">Doctor</label>
+              <DropdownSelect value={conhistDocId} onChange={setConhistDocId} options={doctorOptions} />
+            </div>
+            <div className="min-w-0 flex-1 sm:max-w-xs">
+              <CalendarDatePicker
+                label="Filter by date"
+                value={conhistFilterDate}
+                maxDateIso={localTodayStr()}
+                onChange={setConhistFilterDate}
+              />
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden p-0">
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Consultation history</p>
+             
+            </div>
+            {!conhistDocId ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                Select a doctor to view consultation history.
+              </p>
+            ) : conhistTablePending ? (
+              <AdminAvailabilityTableSkeleton />
+            ) : conhistListQ.isError ? (
+              <p className="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">
+                Could not load consultation history. Try again or refresh the page.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/40">
+                    <tr>
+                      <th className="w-14 px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">
+                        SL.No
+                      </th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Date</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">Start</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-300">End</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conhistRows.map((row, idx) => {
+                      const ymd = row.date.slice(0, 10);
+                      return (
+                        <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                            {(conhistPage - 1) * (conhistListQ.data?.pageSize ?? TABLE_PAGE_SIZE) + idx + 1}
+                          </td>
+                          <td className="px-4 py-3 text-slate-900 dark:text-slate-100">
+                            {formatAvailabilityDateLabel(row.date)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                            {formatHm12Hour(row.startTime, ymd)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                            {formatHm12Hour(row.endTime, ymd)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!conhistRows.length && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                          {conhistFilterDate
+                            ? "No consultation history on this date."
+                            : "No past consultation windows for this doctor."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {conhistListQ.data && conhistDocId && !conhistTablePending ? (
+              <TablePagination
+                page={conhistPage}
+                pageSize={conhistListQ.data.pageSize}
+                total={conhistListQ.data.total}
+                onPageChange={setConhistPage}
               />
             ) : null}
           </Card>
@@ -1100,19 +1256,13 @@ export function AdminDashboardPage() {
             <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
               Clinic hours: {queueSessionsQ.data.sessions[0].startTime}–
               {queueSessionsQ.data.sessions[0].endTime} on the appointment day. The live queue opens and
-              closes automatically at these times. Patients not completed or skipped by staff are
-              marked cancelled when the session ends.
+              closes automatically at these times.
             </p>
           )}
-          {queueSnapshotQ.data?.sessionPhase === "before_start" && (
-            <p className="mb-3 text-sm text-amber-800 dark:text-amber-200">
-              Before clinic hours — the queue will open automatically at session start time.
-            </p>
-          )}
+          
           {queueSnapshotQ.data?.sessionPhase === "after_end" && (
             <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
-              Clinic hours have ended for this day. Outstanding appointments were cancelled unless
-              staff updated them.
+              Clinic hours have ended for this day.
             </p>
           )}
           {queueSnapshotQ.data && !queueSnapshotQ.data.queueStarted && queueSnapshotQ.data.sessionPhase === "active" && (
@@ -2052,7 +2202,7 @@ function AvailabilityCreateModal({
               <CalendarDatePicker
                 label="Date"
                 value={availDate}
-                minDateIso={localTodayStr()}
+                minDateIso={localTomorrowStr()}
                 onChange={onAvailDateChange}
               />
             </>

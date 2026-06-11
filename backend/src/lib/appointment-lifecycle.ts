@@ -12,3 +12,12 @@ export const FINAL_APPOINTMENT_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.SKIPPED,
   AppointmentStatus.CANCELLED,
 ];
+
+/** Existing rows in these statuses block another booking with the same doctor on the same day. */
+export const PATIENT_DOCTOR_DAY_BLOCKING_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.BOOKED,
+  AppointmentStatus.WAITING,
+  AppointmentStatus.CHECKED_IN,
+  AppointmentStatus.SKIPPED,
+  AppointmentStatus.COMPLETED,
+];

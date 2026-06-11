@@ -6,6 +6,16 @@ export function localTodayStr() {
   return `${y}-${m}-${day}`;
 }
 
+/** Yesterday (local calendar) — upper bound for past-only admin filters. */
+export function localYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /** Earliest date patients may book (tomorrow, local calendar). */
 export function localTomorrowStr() {
   const d = new Date();

@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { AppointmentStatus } from "@prisma/client";
 import { AppError } from "../../lib/errors.js";
 import { skipTake } from "../../lib/pagination.js";
-import { assertBookableAppointmentDate } from "../../lib/booking-rules.js";
+import { assertBookableAppointmentDate, assertOneAppointmentPerDoctorDay } from "../../lib/booking-rules.js";
 import { dateOnlyUtc, toDateOnlyIso } from "../../lib/time.js";
 import { formatTokenDisplay } from "../../lib/tokens.js";
 import * as mockPayment from "../payments/mock-payment.service.js";
@@ -36,6 +36,8 @@ export async function bookAppointment(
   if (!slotOk) throw new AppError(400, "Slot is no longer available", "SLOT_TAKEN");
 
   const date = dateOnlyUtc(dateStr);
+  await assertOneAppointmentPerDoctorDay(app.prisma, userId, body.doctorId, date);
+
   const session = await sessionService.resolveSessionForBooking(
     app,
     body.doctorId,
@@ -45,6 +47,7 @@ export async function bookAppointment(
 
   try {
     const appointment = await app.prisma.$transaction(async (tx) => {
+      await assertOneAppointmentPerDoctorDay(tx, userId, body.doctorId, date);
       const tokenNumber = await tokenService.issueNextToken(tx, session.id);
 
       return tx.appointment.create({
@@ -83,6 +86,23 @@ export async function bookAppointment(
     const code =
       typeof e === "object" && e !== null && "code" in e ? String((e as { code?: string }).code) : "";
     if (code === "P2002") {
+      const target = (
+        typeof e === "object" && e !== null && "meta" in e
+          ? (e as { meta?: { target?: string[] | false } }).meta?.target
+          : undefined
+      );
+      if (
+        Array.isArray(target) &&
+        target.includes("userId") &&
+        target.includes("doctorId") &&
+        target.includes("date")
+      ) {
+        throw new AppError(
+          409,
+          "You already have an appointment with this doctor on this day",
+          "DUPLICATE_DOCTOR_DAY"
+        );
+      }
       throw new AppError(409, "That slot was just booked", "SLOT_CONFLICT");
     }
     throw e;

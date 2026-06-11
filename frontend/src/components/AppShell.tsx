@@ -4,7 +4,9 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { CalendarDays, Home, LayoutGrid, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { ConfirmModal } from "./ui";
+import { HeaderProfileMenu } from "./HeaderProfileMenu";
 import { Logo } from "./Logo";
+import type { User } from "../api/types";
 import { ScrollToTopButton } from "./ScrollToTopButton";
 import {
   ADMIN_HOME,
@@ -20,7 +22,7 @@ type PatientNavItem = { to: string; label: string; icon: typeof Home; end?: bool
 
 const patientItems: PatientNavItem[] = [
   { to: "/", label: "Home", icon: Home, end: true },
-  { to: "/browse", label: "Specialty", icon: LayoutGrid },
+  { to: "/browse", label: "Book now", icon: LayoutGrid },
   { to: "/bookings", label: "My bookings", icon: CalendarDays },
 ];
 
@@ -65,6 +67,7 @@ export function AppShell({
   onToggleTheme,
   themeMode,
   role,
+  user,
   isAuthenticated,
   onLogout,
 }: {
@@ -72,6 +75,7 @@ export function AppShell({
   onToggleTheme: () => void;
   themeMode: "light" | "dark";
   role: string | null;
+  user: User | null;
   isAuthenticated: boolean;
   onLogout: () => void;
 }) {
@@ -154,9 +158,17 @@ export function AppShell({
   );
 
   const desktopHeaderActions = (
-    <div className="ml-auto flex shrink-0 items-center gap-2">
-      {isAuthenticated ? logoutButton : signInLink}
-      {themeButton}
+    <div className="ml-auto flex shrink-0 items-center">
+      {isAuthenticated && user ? (
+        <HeaderProfileMenu
+          user={user}
+          themeMode={themeMode}
+          onToggleTheme={onToggleTheme}
+          onLogout={requestLogout}
+        />
+      ) : (
+        signInLink
+      )}
     </div>
   );
 
@@ -214,7 +226,7 @@ export function AppShell({
           )}
         </div>
 
-        {/* md+: logo (left) · logout + theme (right end) */}
+        {/* md+: logo (left) · profile (right end) */}
         <div className="hidden min-h-11 w-full items-center gap-3 md:flex">
           <Logo size="md" className="min-w-0 shrink-0" to={logoTo} />
           {desktopHeaderActions}

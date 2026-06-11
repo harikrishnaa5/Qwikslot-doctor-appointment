@@ -58,6 +58,14 @@ export const adminPatientListQuerySchema = z.object({
 
 export const adminResourceListQuerySchema = paginationQuerySchema;
 
+export const adminAvailabilityListQuerySchema = paginationQuerySchema.extend({
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  range: z.enum(["future", "past"]),
+});
+
 export const upsertAvailabilitySchema = z.object({
   doctorId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

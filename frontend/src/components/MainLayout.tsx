@@ -12,7 +12,8 @@ export function MainLayout() {
   const dispatch = useAppDispatch();
   const location = useLocation();
   const themeMode = useAppSelector((s) => s.theme.mode);
-  const role = useAppSelector((s) => s.auth.user?.role ?? null);
+  const user = useAppSelector((s) => s.auth.user);
+  const role = user?.role ?? null;
   const isAuthenticated = useAppSelector((s) => Boolean(s.auth.user && s.auth.accessToken));
 
   useEffect(() => {
@@ -25,6 +26,7 @@ export function MainLayout() {
     <AppShell
       themeMode={themeMode}
       role={role}
+      user={user}
       isAuthenticated={isAuthenticated}
       onLogout={() => {
         const refresh = getStoredRefreshToken();

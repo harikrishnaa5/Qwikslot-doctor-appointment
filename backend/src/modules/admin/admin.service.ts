@@ -23,6 +23,7 @@ import {
 import { AdminRole, type AdminRoleValue } from "../../lib/roles.js";
 import { skipTake } from "../../lib/pagination.js";
 import { syncScheduleNoticesForDoctorDate } from "../../lib/schedule-notices.js";
+import { earliestBookableDateStr, localTodayDateStr } from "../../lib/booking-rules.js";
 import { dateOnlyUtc, localDateTime, toDateOnlyIsoFromDbDate } from "../../lib/time.js";
 import { formatTokenDisplay } from "../../lib/tokens.js";
 import {
@@ -31,6 +32,7 @@ import {
 } from "../queue/session.service.js";
 import type {
   adminAppointmentListSchema,
+  adminAvailabilityListQuerySchema,
   adminResourceListQuerySchema,
   adminPatientListQuerySchema,
   adminUserListQuerySchema,
@@ -259,15 +261,43 @@ export async function deleteAvailability(app: FastifyInstance, id: string) {
 export async function listAvailabilities(
   app: FastifyInstance,
   doctorId: string,
-  q: z.infer<typeof adminResourceListQuerySchema>
+  q: z.infer<typeof adminAvailabilityListQuerySchema>
 ) {
   const { skip, take } = skipTake(q);
-  const where = { doctorId };
+  const today = dateOnlyUtc(localTodayDateStr());
+  const tomorrow = dateOnlyUtc(earliestBookableDateStr());
+
+  const where: { doctorId: string; date?: Date | { gte?: Date; lte?: Date } } = { doctorId };
+
+  if (q.range === "future") {
+    if (q.date) {
+      const day = dateOnlyUtc(q.date);
+      if (day < tomorrow) {
+        return { page: q.page, pageSize: q.pageSize, total: 0, availabilities: [] };
+      }
+      where.date = day;
+    } else {
+      where.date = { gte: tomorrow };
+    }
+  } else {
+    if (q.date) {
+      const day = dateOnlyUtc(q.date);
+      if (day > today) {
+        return { page: q.page, pageSize: q.pageSize, total: 0, availabilities: [] };
+      }
+      where.date = day;
+    } else {
+      where.date = { lte: today };
+    }
+  }
+
+  const orderBy = q.range === "past" ? { date: "desc" as const } : { date: "asc" as const };
+
   const [total, rows] = await Promise.all([
     app.prisma.availability.count({ where }),
     app.prisma.availability.findMany({
       where,
-      orderBy: { date: "asc" },
+      orderBy,
       skip,
       take,
     }),

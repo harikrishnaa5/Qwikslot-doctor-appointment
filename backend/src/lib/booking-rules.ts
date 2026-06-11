@@ -1,6 +1,10 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { AppError } from "./errors.js";
+import { PATIENT_DOCTOR_DAY_BLOCKING_STATUSES } from "./appointment-lifecycle.js";
 import { getSessionPhase } from "./session-window.js";
 import { toDateOnlyIso } from "./time.js";
+
+type DbClient = PrismaClient | Prisma.TransactionClient;
 
 /** Local calendar today as YYYY-MM-DD. */
 export function localTodayDateStr(): string {
@@ -12,6 +16,40 @@ export function earliestBookableDateStr(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return toDateOnlyIso(d);
+}
+
+export async function findPatientDoctorDayBooking(
+  db: DbClient,
+  userId: string,
+  doctorId: string,
+  date: Date
+) {
+  return db.appointment.findFirst({
+    where: {
+      userId,
+      doctorId,
+      date,
+      status: { in: PATIENT_DOCTOR_DAY_BLOCKING_STATUSES },
+    },
+    select: { id: true },
+  });
+}
+
+/** One patient may hold at most one non-cancelled appointment per doctor per calendar day. */
+export async function assertOneAppointmentPerDoctorDay(
+  db: DbClient,
+  userId: string,
+  doctorId: string,
+  date: Date
+) {
+  const existing = await findPatientDoctorDayBooking(db, userId, doctorId, date);
+  if (existing) {
+    throw new AppError(
+      409,
+      "You already have an appointment with this doctor on this day",
+      "DUPLICATE_DOCTOR_DAY"
+    );
+  }
 }
 
 /** Patients must book at least one full day before the appointment (not same day). */

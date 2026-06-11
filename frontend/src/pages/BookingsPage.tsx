@@ -5,7 +5,7 @@ import { toast } from "../lib/toast";
 import { dismissAppointmentScheduleNotice, fetchMyAppointments } from "../api/user";
 import type { AppointmentRow } from "../api/types";
 import { formatAppointmentStatus } from "../lib/appointmentStatus";
-import { formatSlotLabel } from "../lib/dates";
+import { formatLocaleDateTime } from "../lib/dates";
 import { Button, Card, PageHeader, TablePagination } from "../components/ui";
 import { UserBookingCardsSkeleton, UserBookingHistoryTableSkeleton } from "../components/skeletons";
 
@@ -144,7 +144,7 @@ function AppointmentCard({
           </div>
         ) : null}
         <p className="font-semibold text-slate-900 dark:text-slate-50">{a.doctorName}</p>
-        <p className="text-sm text-slate-600 dark:text-slate-400">{formatSlotLabel(a.scheduledAt)}</p>
+        <p className="text-sm text-slate-600 dark:text-slate-400">{formatLocaleDateTime(a.scheduledAt)}</p>
         <p className="text-sm text-slate-500">
           Token <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{a.token}</span>
         </p>

@@ -1,7 +1,7 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { CalendarDays, X } from "lucide-react";
-import { DayPicker } from "react-day-picker";
+import { DayPicker, type Matcher } from "react-day-picker";
 import dayjs, { type Dayjs } from "dayjs";
 import { toast } from "../lib/toast";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -15,6 +15,7 @@ type DatePickerProps = {
   value: string | null;
   onChange: (value: string | null) => void;
   minDateIso?: string;
+  maxDateIso?: string;
   className?: string;
 };
 
@@ -71,17 +72,33 @@ function CalendarMonthsDropdown(props: {
   );
 }
 
-export function CalendarDatePicker({ label, value, onChange, minDateIso, className }: DatePickerProps) {
+export function CalendarDatePicker({
+  label,
+  value,
+  onChange,
+  minDateIso,
+  maxDateIso,
+  className,
+}: DatePickerProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
   const [panelPos, setPanelPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [openUpward, setOpenUpward] = useState(false);
   const minDate = useMemo(() => (minDateIso ? isoToDate(minDateIso) : undefined), [minDateIso]);
+  const maxDate = useMemo(() => (maxDateIso ? isoToDate(maxDateIso) : undefined), [maxDateIso]);
+  const disabledDays = useMemo((): Matcher | Matcher[] | undefined => {
+    if (minDate && maxDate) return [{ before: minDate }, { after: maxDate }];
+    if (minDate) return { before: minDate };
+    if (maxDate) return { after: maxDate };
+    return undefined;
+  }, [minDate, maxDate]);
   const startMonth = useMemo(() => {
+    if (value) return toMonthStart(isoToDate(value));
+    if (maxDate) return toMonthStart(maxDate);
     if (minDate) return toMonthStart(minDate);
     return toMonthStart(new Date());
-  }, [minDate]);
+  }, [minDate, maxDate, value]);
   const [displayMonth, setDisplayMonth] = useState<Date>(() => {
     if (value) return toMonthStart(isoToDate(value));
     return startMonth;
@@ -198,7 +215,7 @@ export function CalendarDatePicker({ label, value, onChange, minDateIso, classNa
             captionLayout="dropdown-months"
             components={{ MonthsDropdown: CalendarMonthsDropdown }}
             startMonth={startMonth}
-            disabled={minDate ? { before: minDate } : undefined}
+            disabled={disabledDays}
             weekStartsOn={1}
           />
         </div>

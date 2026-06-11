@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { AppError } from "../../lib/errors.js";
 import { BOOKING_SLOT_STEP_MINUTES } from "../../lib/slots-config.js";
-import { assertBookableAppointmentDate } from "../../lib/booking-rules.js";
+import { assertBookableAppointmentDate, findPatientDoctorDayBooking } from "../../lib/booking-rules.js";
 import { dateOnlyUtc, localDateTime, toDateOnlyIso } from "../../lib/time.js";
 import * as queueService from "../queue/queue.service.js";
 import * as sessionService from "../queue/session.service.js";
@@ -49,7 +49,12 @@ export async function getDoctor(app: FastifyInstance, id: string) {
   return doctor;
 }
 
-export async function getAvailableSlots(app: FastifyInstance, doctorId: string, dateStr: string) {
+export async function getAvailableSlots(
+  app: FastifyInstance,
+  doctorId: string,
+  dateStr: string,
+  userId?: string
+) {
   const doctor = await app.prisma.doctor.findFirst({ where: { id: doctorId, active: true } });
   if (!doctor) throw new AppError(404, "Doctor not found", "NOT_FOUND");
 
@@ -63,6 +68,12 @@ export async function getAvailableSlots(app: FastifyInstance, doctorId: string, 
   }
 
   const day = dateOnlyUtc(dateStr);
+
+  if (userId) {
+    const existing = await findPatientDoctorDayBooking(app.prisma, userId, doctorId, day);
+    if (existing) return { date: dateStr, slots: [] as { start: string; end: string }[] };
+  }
+
   const availabilities = await app.prisma.availability.findMany({
     where: { doctorId, date: day },
   });

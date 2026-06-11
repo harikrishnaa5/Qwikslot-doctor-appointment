@@ -17,13 +17,15 @@ export function DoctorAvatar({
 }: {
   name: string;
   imageUrl?: string | null;
-  size?: "sm" | "md" | "lg" | "xl" | "2xl";
+  size?: "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
   shape?: "rounded" | "circle";
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
   const dim =
-    size === "sm"
+    size === "xs"
+      ? "h-9 w-9 min-h-9 min-w-9 text-xs"
+      : size === "sm"
       ? "h-12 w-12 min-h-12 min-w-12 text-sm"
       : size === "lg"
         ? "h-20 w-20 min-h-20 min-w-20 text-xl"

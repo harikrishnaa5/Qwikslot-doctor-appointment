@@ -1,13 +1,31 @@
 import type { LucideIcon } from "lucide-react";
 import { DOCTOR_HOME } from "./doctorNav";
-import { Building2, CalendarClock, ClipboardList, ListOrdered, Stethoscope, Shield, Users } from "lucide-react";
+import {
+  Building2,
+  CalendarClock,
+  ClipboardList,
+  History,
+  ListOrdered,
+  Stethoscope,
+  Shield,
+  Users,
+} from "lucide-react";
 
-export type AdminTab = "dept" | "docs" | "avail" | "appt" | "queue" | "patients" | "staff";
+export type AdminTab =
+  | "dept"
+  | "docs"
+  | "avail"
+  | "conhist"
+  | "appt"
+  | "queue"
+  | "patients"
+  | "staff";
 
 export const ADMIN_SECTION_PATHS: Record<AdminTab, string> = {
   dept: "departments",
   docs: "doctors",
   avail: "availability",
+  conhist: "consultation-history",
   appt: "visits",
   queue: "queue",
   patients: "patients",
@@ -29,9 +47,14 @@ export function tabFromSection(section: string | undefined): AdminTab | null {
 
 export function getAllowedAdminTabs(role: string | null | undefined): AdminTab[] {
   const tabs: AdminTab[] = ["dept", "docs", "avail", "appt", "queue"];
-  if (role === "ADMIN" || role === "SUPER_ADMIN") tabs.push("patients");
+  if (role === "ADMIN" || role === "SUPER_ADMIN") tabs.push("patients", "conhist");
   if (role === "SUPER_ADMIN") tabs.push("staff");
   return tabs;
+}
+
+/** Primary admin nav (excludes consultation history — linked from profile menu). */
+export function getAdminPrimaryNavTabs(role: string | null | undefined): AdminTab[] {
+  return getAllowedAdminTabs(role).filter((tab) => tab !== "conhist");
 }
 
 export type AdminNavItem = {
@@ -45,6 +68,7 @@ export const ADMIN_NAV_META: Record<AdminTab, { label: string; icon: LucideIcon 
   dept: { label: "Departments", icon: Building2 },
   docs: { label: "Doctors", icon: Stethoscope },
   avail: { label: "Availability", icon: CalendarClock },
+  conhist: { label: "Consultation history", icon: History },
   appt: { label: "Visits", icon: ClipboardList },
   queue: { label: "Queue", icon: ListOrdered },
   patients: { label: "Patients", icon: Users },
@@ -52,7 +76,7 @@ export const ADMIN_NAV_META: Record<AdminTab, { label: string; icon: LucideIcon 
 };
 
 export function getAdminNavItems(role: string | null | undefined): AdminNavItem[] {
-  return getAllowedAdminTabs(role).map((tab) => ({
+  return getAdminPrimaryNavTabs(role).map((tab) => ({
     tab,
     to: adminPath(tab),
     label: ADMIN_NAV_META[tab].label,
@@ -60,10 +84,10 @@ export function getAdminNavItems(role: string | null | undefined): AdminNavItem[
   }));
 }
 
-/** Mobile drawer (hamburger): departments, doctors, patients. */
+/** Mobile drawer (hamburger): departments, doctors, patients, consultation history. */
 export function getAdminMobileMenuTabs(role: string | null | undefined): AdminTab[] {
   const tabs: AdminTab[] = ["dept", "docs"];
-  if (role === "ADMIN" || role === "SUPER_ADMIN") tabs.push("patients");
+  if (role === "ADMIN" || role === "SUPER_ADMIN") tabs.push("patients", "conhist");
   return tabs;
 }
 

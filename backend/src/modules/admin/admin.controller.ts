@@ -8,6 +8,7 @@ import * as appointmentService from "../appointments/appointments.service.js";
 import { patchAppointmentStatusSchema } from "../appointments/appointments.schemas.js";
 import {
   adminAppointmentListSchema,
+  adminAvailabilityListQuerySchema,
   adminResourceListQuerySchema,
   adminPatientListQuerySchema,
   adminUserListQuerySchema,
@@ -138,7 +139,7 @@ export async function setAvailability(request: FastifyRequest, reply: FastifyRep
 export async function listAvailability(request: FastifyRequest, reply: FastifyReply) {
   try {
     const { doctorId } = request.params as { doctorId: string };
-    const q = adminResourceListQuerySchema.parse(request.query);
+    const q = adminAvailabilityListQuerySchema.parse(request.query);
     const result = await adminService.listAvailabilities(request.server, doctorId, q);
     return reply.send(result);
   } catch (err) {
